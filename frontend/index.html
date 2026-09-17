@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=1.0.3">
 </head>
 <body>
   <div class="app-layout">
@@ -21,8 +21,7 @@
           </svg>
         </div>
         <div class="brand-titles">
-          <h1>LocalGPT <span class="badge-tag">HACKATHON PROTOTYPE</span></h1>
-          <p class="tagline">Designed to keep AI processing local &bull; Deterministic Tool Sandbox</p>
+          <h1>LocalGPT</h1>
         </div>
       </div>
 
@@ -35,6 +34,13 @@
           <span class="pulse-dot blue"></span>
           <span id="ollamaModelName">Qwen 3 (8B)</span>
         </div>
+        <button class="nav-btn" id="clearChatBtn" title="Clear Chat History" style="color: #fb7185; border-color: rgba(244, 63, 94, 0.4);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          Clear Chat
+        </button>
         <button class="nav-btn" id="auditToggleBtn" title="Open Append-Only Audit Trail">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -113,7 +119,7 @@
           </div>
           <div class="preset-cards">
             <button class="preset-card" id="demoPreset1">
-              <div class="preset-tag">FLAGSHIP HACKATHON DEMO</div>
+              <div class="preset-tag">FEATURED DEMO WORKFLOW</div>
               <div class="preset-title">Resume Gap Analysis & Tailored Application</div>
               <div class="preset-desc">Inspects resume + JD, analyzes skill gaps, prompts user permission, and creates verified application.md</div>
             </button>
@@ -218,6 +224,6 @@
 
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=1.0.4"></script>
 </body>
 </html>

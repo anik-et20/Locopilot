@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const refreshFilesBtn = document.getElementById('refreshFilesBtn');
   const ollamaModelName = document.getElementById('ollamaModelName');
   const stageRibbon = document.getElementById('stageRibbon');
+  const clearChatBtn = document.getElementById('clearChatBtn');
   
   // Audit Drawer
   const auditDrawer = document.getElementById('auditDrawer');
@@ -41,11 +42,65 @@ document.addEventListener('DOMContentLoaded', () => {
   checkSystemHealth();
   fetchWorkspaceFiles();
   fetchAuditLogs();
+  fetchChatHistory();
 
   // Polling for health check
   setInterval(checkSystemHealth, 20000);
 
   // --- API Functions ---
+
+  async function fetchChatHistory() {
+    try {
+      const res = await fetch('/api/chat/history');
+      if (res.ok) {
+        const data = await res.json();
+        chatHistory = data.history || [];
+        if (chatHistory.length > 0) {
+          const hero = document.getElementById('welcomeHero');
+          if (hero) hero.remove();
+          chatHistory.forEach(msg => {
+            appendChatBubble(msg.role, escapeHtml(msg.content).replace(/\\n/g, '<br>'));
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load chat history:', e);
+    }
+  }
+
+  const WELCOME_HERO_HTML = `
+    <div class="welcome-hero" id="welcomeHero">
+      <div class="hero-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
+        </svg>
+      </div>
+      <h2>LocalGPT Workspace Agent</h2>
+      <p>Your on-device, privacy-preserving digital assistant. LocalGPT gathers context from your local documents, plans safe deterministic actions, requests your explicit permission for writes, and verifies every disk change.</p>
+      <div class="hero-features">
+        <div class="feat-item">&check; 100% Local Inference (Qwen)</div>
+        <div class="feat-item">&check; 5 Whitelisted Deterministic Tools</div>
+        <div class="feat-item">&check; Human Permission Checkpoint</div>
+        <div class="feat-item">&check; Post-Action Verification</div>
+      </div>
+    </div>
+  `;
+
+  async function clearChat() {
+    try {
+      await fetch('/api/chat/history', { method: 'DELETE' });
+    } catch (e) {
+      console.warn('Backend history delete notice:', e);
+    }
+    chatHistory = [];
+    currentAssistantBubble = null;
+    feedContainer.innerHTML = WELCOME_HERO_HTML;
+    resetStages();
+    fetchAuditLogs();
+    console.log('Chat history cleared and UI reset.');
+  }
 
   async function checkSystemHealth() {
     try {
@@ -146,27 +201,38 @@ document.addEventListener('DOMContentLoaded', () => {
     nodes.forEach(n => n.className = 'stage-node');
   }
 
+  let chatHistory = [];
+  let currentAssistantBubble = null;
+
   // --- Run Agent Pipeline (SSE) ---
 
   async function startAgentRun(goalText) {
     if (!goalText.trim()) return;
 
+    // Remove welcome hero if present
+    const hero = document.getElementById('welcomeHero');
+    if (hero) hero.remove();
+
+    // Append user bubble
+    appendChatBubble('user', goalText);
+
     // Reset UI
-    feedContainer.innerHTML = '';
     resetStages();
-    setStageActive('understand');
     submitGoalBtn.disabled = true;
 
     try {
-      const response = await fetch('/api/agent/run', {
+      const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal: goalText })
+        body: JSON.stringify({ message: goalText, history: chatHistory })
       });
 
       if (!response.ok) {
         throw new Error(`Server returned HTTP ${response.status}`);
       }
+
+      chatHistory.push({ role: 'user', content: goalText });
+      let currentAssistantMessage = "";
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -186,13 +252,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rawJson) {
               try {
                 const eventData = JSON.parse(rawJson);
-                handlePipelineEvent(eventData);
+                handlePipelineEvent(eventData, (text) => {
+                  currentAssistantMessage += text;
+                });
               } catch (err) {
                 console.error('Error parsing SSE event:', err, rawJson);
               }
             }
           }
         }
+      }
+
+      if (currentAssistantMessage) {
+        chatHistory.push({ role: 'assistant', content: currentAssistantMessage });
       }
 
     } catch (e) {
@@ -206,10 +278,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Event Stream Handler ---
 
-  function handlePipelineEvent(event) {
+  function handlePipelineEvent(event, appendTextFn) {
     console.log('Pipeline Event:', event);
 
     switch (event.event) {
+      case 'ROUTING':
+        if (event.target === 'CHAT') {
+           setStageActive('understand'); // Just visually show something
+        }
+        break;
+
+      case 'CHAT_START':
+        currentAssistantBubble = appendChatBubble('assistant', '');
+        break;
+
+      case 'CHAT_TOKEN':
+        if (currentAssistantBubble) {
+          const contentDiv = currentAssistantBubble.querySelector('.bubble-content');
+          contentDiv.innerHTML += escapeHtml(event.token).replace(/\\n/g, '<br>');
+          if (appendTextFn) appendTextFn(event.token);
+          feedContainer.scrollTop = feedContainer.scrollHeight;
+        }
+        break;
+
+      case 'CHAT_DONE':
+        break;
       case 'SESSION_STARTED':
         appendEventCard('session', 'Local Session Initialized', `Goal: <strong>${escapeHtml(event.goal)}</strong>`);
         break;
@@ -433,6 +526,19 @@ document.addEventListener('DOMContentLoaded', () => {
     feedContainer.appendChild(card);
   }
 
+  function appendChatBubble(role, htmlContent) {
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble chat-bubble-${role}`;
+    const icon = role === 'user' ? '👤' : '🤖';
+    bubble.innerHTML = `
+      <div class="bubble-icon">${icon}</div>
+      <div class="bubble-content" style="white-space: pre-wrap;">${htmlContent}</div>
+    `;
+    feedContainer.appendChild(bubble);
+    feedContainer.scrollTop = feedContainer.scrollHeight;
+    return bubble;
+  }
+
   // --- Audit Trail Drawer Logic ---
 
   async function fetchAuditLogs() {
@@ -498,6 +604,10 @@ document.addEventListener('DOMContentLoaded', () => {
       goalForm.dispatchEvent(new Event('submit'));
     }
   });
+
+  if (clearChatBtn) {
+    clearChatBtn.addEventListener('click', clearChat);
+  }
 
   refreshFilesBtn.addEventListener('click', fetchWorkspaceFiles);
 

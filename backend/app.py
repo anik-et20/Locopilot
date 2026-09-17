@@ -20,6 +20,8 @@ from .core.tools import list_files, read_file
 from .core.permission import permission_gateway, PermissionResponse
 from .core.audit import audit_logger
 from .core.agent_orchestrator import agent_orchestrator
+from .core.chat import chat_manager
+from .core.chat_history import chat_history_db
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -41,6 +43,11 @@ app.add_middleware(
 
 class RunGoalRequest(BaseModel):
     goal: str
+    session_id: Optional[str] = None
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[Dict[str, str]] = []
     session_id: Optional[str] = None
 
 class PermissionDecisionRequest(BaseModel):
@@ -128,6 +135,42 @@ async def run_agent_pipeline(req: RunGoalRequest):
             "X-Accel-Buffering": "no"
         }
     )
+
+@app.post("/api/chat/stream")
+async def chat_stream_endpoint(req: ChatRequest):
+    """Stream conversation or trigger agent workflow depending on intent."""
+    if not req.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    async def event_generator():
+        try:
+            async for data in chat_manager.process_chat_message(req.message, req.history, req.session_id):
+                yield data
+        except Exception as e:
+            logger.error(f"Error in chat stream: {e}", exc_info=True)
+            err_payload = json.dumps({"event": "ERROR", "message": str(e)})
+            yield f"data: {err_payload}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+@app.get("/api/chat/history")
+async def get_chat_history():
+    """Retrieve all conversational chat history."""
+    return {"history": chat_history_db.get_all()}
+
+@app.delete("/api/chat/history")
+async def clear_chat_history():
+    """Clear all conversational chat history."""
+    chat_history_db.clear_all()
+    return {"status": "success"}
 
 @app.get("/api/permission/pending")
 async def get_pending_permissions():

@@ -441,6 +441,60 @@ body {
   color: #c7d2fe;
 }
 
+/* Chat Bubbles - Perfectly Aligned Horizontal & Vertical Offsets */
+.chat-bubble {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 14px !important;
+  padding: 14px 18px !important;
+  border-radius: var(--radius-md) !important;
+  margin: 0 0 14px 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  animation: fadeIn 0.3s ease !important;
+  box-sizing: border-box !important;
+}
+
+.chat-bubble-user {
+  background: rgba(99, 102, 241, 0.08) !important;
+  border: 1px solid rgba(99, 102, 241, 0.22) !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.chat-bubble-assistant {
+  background: rgba(6, 182, 212, 0.08) !important;
+  border: 1px solid rgba(6, 182, 212, 0.22) !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.bubble-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  font-size: 1.15rem !important;
+  flex-shrink: 0 !important;
+  line-height: 1 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.bubble-content {
+  flex: 1 !important;
+  font-size: 0.92rem !important;
+  line-height: 1.6 !important;
+  color: var(--text-main) !important;
+  padding: 2px 0 0 0 !important;
+  margin: 0 !important;
+  word-break: break-word !important;
+}
+
+
+
 /* Event Cards */
 .event-card {
   background: var(--bg-card);
