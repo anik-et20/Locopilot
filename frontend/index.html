@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LocalGPT — Privacy-First AI Agent for Personal Workspaces</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="logo-shield">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="M9 12l2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="brand-titles">
+          <h1>LocalGPT <span class="badge-tag">HACKATHON PROTOTYPE</span></h1>
+          <p class="tagline">Designed to keep AI processing local &bull; Deterministic Tool Sandbox</p>
+        </div>
+      </div>
+
+      <div class="nav-status-group">
+        <div class="status-pill status-privacy" title="All operations run on your local machine">
+          <span class="pulse-dot green"></span>
+          <span class="status-label">100% On-Device</span>
+        </div>
+        <div class="status-pill" id="ollamaStatusPill">
+          <span class="pulse-dot blue"></span>
+          <span id="ollamaModelName">Qwen 3 (8B)</span>
+        </div>
+        <button class="nav-btn" id="auditToggleBtn" title="Open Append-Only Audit Trail">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          Audit Log
+        </button>
+      </div>
+    </header>
+
+    <!-- Visual Architecture / Stage Ribbon -->
+    <div class="stage-ribbon-wrapper">
+      <div class="stage-ribbon" id="stageRibbon">
+        <div class="stage-node active" data-stage="understand">
+          <div class="stage-icon">1</div>
+          <div class="stage-text">Understand</div>
+        </div>
+        <div class="stage-arrow">&rarr;</div>
+        <div class="stage-node" data-stage="rag">
+          <div class="stage-icon">2</div>
+          <div class="stage-text">Search Local RAG</div>
+        </div>
+        <div class="stage-arrow">&rarr;</div>
+        <div class="stage-node" data-stage="plan">
+          <div class="stage-icon">3</div>
+          <div class="stage-text">Structured Plan</div>
+        </div>
+        <div class="stage-arrow">&rarr;</div>
+        <div class="stage-node" data-stage="permission">
+          <div class="stage-icon">4</div>
+          <div class="stage-text">Permission Check</div>
+        </div>
+        <div class="stage-arrow">&rarr;</div>
+        <div class="stage-node" data-stage="execute">
+          <div class="stage-icon">5</div>
+          <div class="stage-text">Deterministic Exec</div>
+        </div>
+        <div class="stage-arrow">&rarr;</div>
+        <div class="stage-node" data-stage="verify">
+          <div class="stage-icon">6</div>
+          <div class="stage-text">Verify Result</div>
+        </div>
+        <div class="stage-arrow">&rarr;</div>
+        <div class="stage-node" data-stage="audit">
+          <div class="stage-icon">7</div>
+          <div class="stage-text">Audit Trail</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content Area (Sidebar + Execution Stream) -->
+    <main class="main-container">
+      <!-- Left Workspace Panel -->
+      <aside class="sidebar-panel">
+        <div class="panel-section">
+          <div class="section-header">
+            <h3>Personal Workspace</h3>
+            <button class="icon-btn" id="refreshFilesBtn" title="Refresh workspace files">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+            </button>
+          </div>
+          <div class="workspace-file-tree" id="workspaceFileList">
+            <div class="loading-state">Loading workspace documents...</div>
+          </div>
+        </div>
+
+        <div class="panel-section demo-presets-section">
+          <div class="section-header">
+            <h3>Demo Scenarios</h3>
+            <span class="badge-sub">1-Click Live Tests</span>
+          </div>
+          <div class="preset-cards">
+            <button class="preset-card" id="demoPreset1">
+              <div class="preset-tag">FLAGSHIP HACKATHON DEMO</div>
+              <div class="preset-title">Resume Gap Analysis & Tailored Application</div>
+              <div class="preset-desc">Inspects resume + JD, analyzes skill gaps, prompts user permission, and creates verified application.md</div>
+            </button>
+            <button class="preset-card" id="demoPreset2">
+              <div class="preset-tag">AGENT SAFETY & VERIFICATION</div>
+              <div class="preset-title">Analyze Technical Report & Learnings</div>
+              <div class="preset-desc">Synthesizes key architectural findings on post-action verification and deterministic 5-tool sandboxes.</div>
+            </button>
+            <button class="preset-card" id="demoPreset3">
+              <div class="preset-tag">LOCAL RAG SEARCH</div>
+              <div class="preset-title">Direct Workspace Knowledge Query</div>
+              <div class="preset-desc">Retrieves specific benchmarks and citations from indexed personal files with exact chunk provenance.</div>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center / Right Execution Feed & Chat -->
+      <section class="feed-panel">
+        <!-- Interactive Feed Stream -->
+        <div class="feed-scroll-container" id="feedContainer">
+          <div class="welcome-hero" id="welcomeHero">
+            <div class="hero-icon">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+            </div>
+            <h2>LocalGPT Workspace Agent</h2>
+            <p>Your on-device, privacy-preserving digital assistant. LocalGPT gathers context from your local documents, plans safe deterministic actions, requests your explicit permission for writes, and verifies every disk change.</p>
+            <div class="hero-features">
+              <div class="feat-item">&check; 100% Local Inference (Qwen)</div>
+              <div class="feat-item">&check; 5 Whitelisted Deterministic Tools</div>
+              <div class="feat-item">&check; Human Permission Checkpoint</div>
+              <div class="feat-item">&check; Post-Action Verification</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input Box Area -->
+        <div class="input-container">
+          <form id="goalForm" class="goal-form">
+            <textarea 
+              id="goalInput" 
+              class="goal-textarea" 
+              placeholder="State a goal for your workspace (e.g. 'Review my resume and job description, analyze skill gaps, and generate output/tailored_application.md')..." 
+              rows="2"
+            ></textarea>
+            <button type="submit" id="submitGoalBtn" class="submit-btn">
+              <span>Run Agent</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+          <div class="input-subtext">
+            <span>Deterministic Sandbox &bull; High-risk operations (create_file, create_folder) strictly require approval.</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Slide-over Audit Log Drawer -->
+    <div class="audit-drawer" id="auditDrawer">
+      <div class="audit-header">
+        <div class="audit-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <h3>Append-Only Audit Trail</h3>
+          <span class="badge-tag">logs/audit_log.jsonl</span>
+        </div>
+        <button class="icon-btn" id="closeAuditBtn">&times;</button>
+      </div>
+      <div class="audit-controls">
+        <input type="text" id="auditFilterInput" class="audit-search" placeholder="Filter audit events (e.g., PERMISSION, TOOL)...">
+        <button class="btn-secondary-sm" id="refreshAuditBtn">Refresh</button>
+      </div>
+      <div class="audit-stream" id="auditStreamContainer">
+        <div class="loading-state">Loading audit entries...</div>
+      </div>
+    </div>
+
+    <!-- File Viewer Modal -->
+    <div class="modal-backdrop" id="fileModal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <h3 id="modalFileName">Document Viewer</h3>
+            <span class="badge-sub" id="modalFilePath">path/to/file</span>
+          </div>
+          <button class="icon-btn" id="closeModalBtn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <pre class="file-content-view" id="modalFileContent"></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
