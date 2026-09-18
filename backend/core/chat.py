@@ -12,20 +12,25 @@ class ChatManager:
         """
         Process a chat message. 
         1. Classifies if the message requires workspace agent execution or normal chat.
-        2. If agent: yields SSE events from agent_orchestrator.
-        3. If chat: yields SSE chat tokens.
+        2. If agent: yields SSE events from agent_orchestrator and records to history.
+        3. If chat: yields SSE chat tokens and records to history.
         """
         classification = await self._classify_intent(message)
         
+        # Save user message to persistent history
+        chat_history_db.add_message("user", message)
+        
         if classification == "AGENT":
             # Yield events from the agent orchestrator
-            yield f"data: {json.dumps({'event': 'ROUTING', 'target': 'AGENT', 'message': 'Complex request detected. Triggering workspace agent pipeline...'})}\n\n"
+            yield f"data: {json.dumps({'event': 'ROUTING', 'target': 'AGENT', 'message': 'Workspace request detected. Triggering agent pipeline...'})}\n\n"
             async for event_data in agent_orchestrator.run_pipeline(message, session_id):
+                if event_data.get("event") == "FINAL_REPORT":
+                    # Record final synthesized report to chat history
+                    final_ans = event_data.get("final_answer", "")
+                    if final_ans:
+                        chat_history_db.add_message("assistant", final_ans)
                 yield f"data: {json.dumps(event_data)}\n\n"
         else:
-            # Save user message to persistent history
-            chat_history_db.add_message("user", message)
-
             # Yield normal chat response
             yield f"data: {json.dumps({'event': 'ROUTING', 'target': 'CHAT', 'message': 'Simple query detected. Answering conversationally...'})}\n\n"
             prompt = self._format_chat_prompt(message, history)
@@ -42,9 +47,26 @@ class ChatManager:
 
     async def _classify_intent(self, message: str) -> str:
         """Determines if the message needs workspace execution (AGENT) or just text response (CHAT)."""
+        m_lower = message.lower()
+        
+        # Fast heuristic keyword routing for instantaneous responsiveness
+        agent_keywords = [
+            ".md", ".txt", ".pdf", ".py", ".json", "workspace", "file", "folder",
+            "resume", "report", "notes", "cover letter", "job description",
+            "review", "analyze", "synthesize", "search", "create", "write", "generate",
+            "benchmark", "stanford", "gap", "audit", "sandbox", "verify", "pipeline"
+        ]
+        if any(kw in m_lower for kw in agent_keywords):
+            return "AGENT"
+
+        # If very short greeting/conversational phrase
+        chat_keywords = ["hi", "hello", "hey", "who are you", "what can you do", "help", "thanks", "thank you", "bye"]
+        if m_lower.strip() in chat_keywords or len(message.strip().split()) <= 2:
+            return "CHAT"
+
         prompt = f"""You are a routing agent. 
-Does this user message require interacting with the local workspace files (e.g., reading files, creating files, searching documents, writing code, complex analysis on files)? 
-Or is it a simple conversational query (e.g., weather, greeting, general knowledge, simple coding question not modifying files)?
+Does this user message require interacting with local workspace files (e.g., reading files, creating files, searching documents, writing code, complex analysis on files)? 
+Or is it a simple conversational query (e.g., greeting, general trivia, simple question not modifying files)?
 
 Reply strictly with JSON: {{"route": "AGENT"}} or {{"route": "CHAT"}}
 
@@ -55,12 +77,8 @@ User message: "{message}"
             data = json.loads(res)
             return "AGENT" if data.get("route", "CHAT") == "AGENT" else "CHAT"
         except Exception as e:
-            logger.error(f"Routing error: {e}")
-            # Fallback heuristic
-            m_lower = message.lower()
-            if any(w in m_lower for w in ["file", "folder", "read", "workspace", "analyze", "create", "search"]):
-                return "AGENT"
-            return "CHAT"
+            logger.warning(f"LLM routing failed ({e}), falling back to default heuristic.")
+            return "AGENT" if any(w in m_lower for w in ["file", "document", "read", "make", "find"]) else "CHAT"
 
     def _format_chat_prompt(self, message: str, history: List[Dict[str, str]]) -> str:
         """Format chat history into a completion prompt for Ollama."""

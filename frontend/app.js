@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const hero = document.getElementById('welcomeHero');
           if (hero) hero.remove();
           chatHistory.forEach(msg => {
-            appendChatBubble(msg.role, escapeHtml(msg.content).replace(/\\n/g, '<br>'));
+            appendChatBubble(msg.role, msg.content);
           });
         }
       }
@@ -96,6 +96,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     chatHistory = [];
     currentAssistantBubble = null;
+    goalInput.value = '';
+    removeThinkingIndicator();
     feedContainer.innerHTML = WELCOME_HERO_HTML;
     resetStages();
     fetchAuditLogs();
@@ -204,20 +206,55 @@ document.addEventListener('DOMContentLoaded', () => {
   let chatHistory = [];
   let currentAssistantBubble = null;
 
+  function removeThinkingIndicator() {
+    const el = document.getElementById('activeThinkingCard');
+    if (el) el.remove();
+  }
+
+  function showThinkingIndicator(msg) {
+    removeThinkingIndicator();
+    const card = document.createElement('div');
+    card.id = 'activeThinkingCard';
+    card.className = 'event-card event-card-session';
+    card.innerHTML = `
+      <div class="event-card-header">
+        <div class="event-card-title">
+          <span class="pulse-dot blue"></span>
+          <span>${escapeHtml(msg || 'Processing Request...')}</span>
+        </div>
+      </div>
+      <div class="event-card-body" style="font-size:0.83rem; color:var(--text-muted);">
+        Initializing on-device pipeline and preparing local workspace response...
+      </div>
+    `;
+    feedContainer.appendChild(card);
+    feedContainer.scrollTop = feedContainer.scrollHeight;
+  }
+
   // --- Run Agent Pipeline (SSE) ---
 
   async function startAgentRun(goalText) {
     if (!goalText.trim()) return;
 
+    // Immediately clear input box
+    goalInput.value = '';
+
     // Remove welcome hero if present
     const hero = document.getElementById('welcomeHero');
     if (hero) hero.remove();
 
+    // Reset current assistant bubble
+    currentAssistantBubble = null;
+
     // Append user bubble
     appendChatBubble('user', goalText);
 
-    // Reset UI
+    // Show immediate progress card
+    showThinkingIndicator('Processing workspace request...');
+
+    // Reset UI stages
     resetStages();
+    setStageActive('understand');
     submitGoalBtn.disabled = true;
 
     try {
@@ -268,8 +305,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
     } catch (e) {
+      removeThinkingIndicator();
       appendEventCard('error', 'Execution Error', e.message);
     } finally {
+      removeThinkingIndicator();
       submitGoalBtn.disabled = false;
       fetchWorkspaceFiles();
       fetchAuditLogs();
@@ -283,31 +322,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
     switch (event.event) {
       case 'ROUTING':
-        if (event.target === 'CHAT') {
-           setStageActive('understand'); // Just visually show something
+        if (event.target === 'AGENT') {
+          setStageActive('understand');
+          showThinkingIndicator(event.message || 'Executing agent workspace workflow...');
+        } else {
+          setStageActive('understand');
+          removeThinkingIndicator();
         }
         break;
 
       case 'CHAT_START':
+        removeThinkingIndicator();
         currentAssistantBubble = appendChatBubble('assistant', '');
+        currentAssistantBubble.dataset.rawText = '';
         break;
 
       case 'CHAT_TOKEN':
+        removeThinkingIndicator();
         if (currentAssistantBubble) {
+          const raw = (currentAssistantBubble.dataset.rawText || '') + event.token;
+          currentAssistantBubble.dataset.rawText = raw;
           const contentDiv = currentAssistantBubble.querySelector('.bubble-content');
-          contentDiv.innerHTML += escapeHtml(event.token).replace(/\\n/g, '<br>');
+          contentDiv.innerHTML = renderMarkdown(raw);
           if (appendTextFn) appendTextFn(event.token);
           feedContainer.scrollTop = feedContainer.scrollHeight;
         }
         break;
 
       case 'CHAT_DONE':
+        removeThinkingIndicator();
+        if (currentAssistantBubble && currentAssistantBubble.dataset.rawText) {
+          const contentDiv = currentAssistantBubble.querySelector('.bubble-content');
+          contentDiv.innerHTML = renderMarkdown(currentAssistantBubble.dataset.rawText);
+        }
         break;
+
       case 'SESSION_STARTED':
+        removeThinkingIndicator();
         appendEventCard('session', 'Local Session Initialized', `Goal: <strong>${escapeHtml(event.goal)}</strong>`);
         break;
 
       case 'UNDERSTAND':
+        removeThinkingIndicator();
+        setStageActive('understand');
+        appendEventCard('understand', 'Intent Classification', `
+          <div>Classified Intent: <span class="badge-tag">${event.classification}</span></div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">${event.message}</div>
+        `);
+        break;
         setStageActive('understand');
         appendEventCard('understand', 'Intent Classification', `
           <div>Classified Intent: <span class="badge-tag">${event.classification}</span></div>
@@ -520,19 +582,23 @@ document.addEventListener('DOMContentLoaded', () => {
           ✨ LocalGPT Synthesized Workspace Report
         </div>
       </div>
-      <div class="final-report-content">${renderSimpleMarkdown(markdownText)}</div>
+      <div class="final-report-content">${renderMarkdown(markdownText)}</div>
       ${sourcesHtml}
     `;
     feedContainer.appendChild(card);
   }
 
-  function appendChatBubble(role, htmlContent) {
+  function appendChatBubble(role, content) {
     const bubble = document.createElement('div');
     bubble.className = `chat-bubble chat-bubble-${role}`;
+    bubble.dataset.rawText = content || '';
     const icon = role === 'user' ? '👤' : '🤖';
+    const formattedHtml = role === 'user' 
+      ? escapeHtml(content || '').replace(/\n/g, '<br>')
+      : renderMarkdown(content || '');
     bubble.innerHTML = `
       <div class="bubble-icon">${icon}</div>
-      <div class="bubble-content" style="white-space: pre-wrap;">${htmlContent}</div>
+      <div class="bubble-content">${formattedHtml}</div>
     `;
     feedContainer.appendChild(bubble);
     feedContainer.scrollTop = feedContainer.scrollHeight;
@@ -627,19 +693,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Demo Presets
   demoPreset1.addEventListener('click', () => {
     const prompt = `Review my resume (Alex_Rivera_Resume.md) and the job description (Job_Description_AI_Research_Intern.md), analyze skill gaps, and create a customized cover letter and tailored project action plan in output/tailored_application.md.`;
-    goalInput.value = prompt;
+    goalInput.value = '';
     startAgentRun(prompt);
   });
 
   demoPreset2.addEventListener('click', () => {
     const prompt = `Review Project_Alpha_Technical_Report.md and notes_q3_learnings.md, and synthesize the architectural principles of deterministic tool sandboxes and post-action verification.`;
-    goalInput.value = prompt;
+    goalInput.value = '';
     startAgentRun(prompt);
   });
 
   demoPreset3.addEventListener('click', () => {
     const prompt = `Search my workspace documents for all mentions of Stanford education, inference benchmarks, and tool safety guarantees.`;
-    goalInput.value = prompt;
+    goalInput.value = '';
     startAgentRun(prompt);
   });
 
@@ -653,21 +719,54 @@ document.addEventListener('DOMContentLoaded', () => {
               .replace(/"/g, '&quot;');
   }
 
-  function renderSimpleMarkdown(md) {
+  function renderMarkdown(md) {
     if (!md) return '';
-    let html = escapeHtml(md);
-    // Bold
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // 1. If marked.js is available from CDN
+    if (typeof window.marked !== 'undefined' && typeof window.marked.parse === 'function') {
+      try {
+        return window.marked.parse(md, { breaks: true, gfm: true });
+      } catch (err) {
+        console.warn('marked.parse error, fallback to built-in parser:', err);
+      }
+    }
+
+    // 2. Comprehensive offline Markdown parser
+    let text = escapeHtml(md);
+
+    // Code blocks with ```
+    text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+      return `<pre><code class="language-${lang}">${code}</code></pre>`;
+    });
+
+    // Inline code `code`
+    text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
     // Headings
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-    // Bullet points
-    html = html.replace(/^\* (.*$)/gim, '<li>$1</li>');
-    html = html.replace(/^- (.*$)/gim, '<li>$1</li>');
-    // Newlines
-    html = html.replace(/\n\n/g, '<p></p>');
-    html = html.replace(/\n/g, '<br>');
-    return html;
+    text = text.replace(/^#### (.*$)/gim, '<h4>$1</h4>');
+    text = text.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    text = text.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+    text = text.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+    // Bold & Italics
+    text = text.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    text = text.replace(/\*([^\*\n]+)\*/g, '<em>$1</em>');
+
+    // Blockquotes: > quote
+    text = text.replace(/^>\s?(.*$)/gim, '<blockquote>$1</blockquote>');
+
+    // Numbered lists: 1. Item
+    text = text.replace(/^(\d+)\.\s+(.*$)/gim, '<div class="list-item-ordered"><span class="list-num">$1.</span> $2</div>');
+
+    // Bullet lists: - Item or * Item
+    text = text.replace(/^[\*\-]\s+(.*$)/gim, '<div class="list-item-bullet"><span class="bullet-dot">&bull;</span> $1</div>');
+
+    // Paragraph breaks
+    text = text.replace(/\n\n+/g, '<p></p>');
+    text = text.replace(/\n/g, '<br>');
+
+    return text;
   }
 });

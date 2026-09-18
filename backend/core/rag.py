@@ -133,6 +133,9 @@ class KnowledgeBase:
                 file_path = Path(root) / file
                 if file_path.suffix.lower() in supported_exts:
                     rel_path = file_path.relative_to(self.workspace_dir).as_posix()
+                    # Exclude generated output artifacts from source RAG index
+                    if rel_path.startswith("output/") or rel_path.startswith("test_output/"):
+                        continue
                     content = self.load_document(file_path)
                     if content:
                         doc_chunks = self.chunk_text(content, file, rel_path)

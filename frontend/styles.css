@@ -493,6 +493,88 @@ body {
   word-break: break-word !important;
 }
 
+.bubble-content h1, .bubble-content h2, .bubble-content h3, .bubble-content h4 {
+  color: #f8fafc;
+  margin: 12px 0 6px 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.bubble-content h1 { font-size: 1.15rem; }
+.bubble-content h2 { font-size: 1.05rem; }
+.bubble-content h3 { font-size: 0.95rem; color: #a5b4fc; }
+.bubble-content h4 { font-size: 0.88rem; }
+
+.bubble-content p {
+  margin: 6px 0;
+}
+
+.bubble-content strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.bubble-content ul, .bubble-content ol {
+  margin: 6px 0 8px 20px;
+  padding: 0;
+}
+
+.bubble-content li {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
+.list-item-ordered, .list-item-bullet {
+  margin: 4px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.5;
+}
+.list-num {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: #818cf8;
+  min-width: 18px;
+}
+.bullet-dot {
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+.bubble-content code {
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: #38bdf8;
+}
+
+.bubble-content pre {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin: 10px 0;
+  overflow-x: auto;
+}
+
+.bubble-content pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.bubble-content blockquote {
+  border-left: 3px solid var(--accent-primary);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 
 
 /* Event Cards */
