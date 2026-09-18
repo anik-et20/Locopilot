@@ -2,12 +2,13 @@
 LocalGPT Configuration
 Centralized configuration for LocalGPT backend services.
 """
+import os
 from pathlib import Path
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-WORKSPACE_DIR = BASE_DIR / "workspace"
-LOGS_DIR = BASE_DIR / "logs"
+WORKSPACE_DIR = Path(os.environ.get("LOCALPILOT_WORKSPACE_DIR", BASE_DIR / "workspace")).resolve()
+LOGS_DIR = Path(os.environ.get("LOCALPILOT_LOGS_DIR", BASE_DIR / "logs")).resolve()
 AUDIT_LOG_PATH = LOGS_DIR / "audit_log.jsonl"
 
 # Ensure directories exist
@@ -25,7 +26,7 @@ class Settings(BaseModel):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:8b"
     llm_temperature: float = 0.2
-    llm_timeout: float = 120.0
+    llm_timeout: float = 180.0
     
     # RAG / Embedding Configuration
     embedding_model_name: str = "all-MiniLM-L6-v2"

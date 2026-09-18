@@ -43,7 +43,7 @@ Your task is to break down the user's goal into a precise, minimal, ordered JSON
 
 You have access to EXACTLY 5 deterministic tools:
 1. `list_files(subpath)` - [Risk: LOW] List files and folders in workspace.
-2. `read_file(filepath)` - [Risk: LOW] Read a specific file (e.g. 'Alex_Rivera_Resume.md').
+2. `read_file(filepath)` - [Risk: LOW] Read a specific file (e.g. 'Alex_Rivera_Resume.md', 'LearnFlow_LMS_Presentation.pptx').
 3. `search_documents(query, top_k)` - [Risk: LOW] RAG search over personal notes/reports.
 4. `create_file(filepath, content)` - [Risk: HIGH] Create/write a file (e.g. 'output/tailored_application.md').
 5. `create_folder(folderpath)` - [Risk: HIGH] Create a directory.
@@ -53,6 +53,8 @@ CRITICAL RULES:
 - Read operations (list_files, read_file, search_documents) are LOW risk.
 - Write operations (create_file, create_folder) are HIGH risk.
 - High-risk operations must come AFTER gathering necessary context from low-risk tools.
+- PDF RULE: If the user's goal explicitly asks to create/generate a PDF file (e.g. 'make a pdf', 'create cover_letter.pdf', 'generate PDF report'), ensure the target `filepath` in `create_file` ALWAYS ends with `.pdf` (e.g. 'output/cover_letter.pdf'). Otherwise use `.md` or `.txt`.
+- CONVERSATION MEMORY & PRONOUN RESOLUTION: If recent conversation history is provided, resolve pronouns and short references ('it', 'that', 'yes do it', 'the same thing', 'summarize it') against what was just discussed — especially the last file name mentioned by the assistant or the user.
 - Output ONLY a single valid JSON object. No preamble, no conversational text outside the JSON.
 
 Expected JSON schema:
@@ -103,31 +105,37 @@ class AgentPlanner:
     def __init__(self):
         pass
 
-    async def classify_intent(self, user_goal: str) -> str:
+    async def classify_intent(self, user_goal: str, history: Optional[List[Dict[str, str]]] = None) -> str:
         """Classify user intent into one of the 6 standard categories."""
         goal_lower = user_goal.lower()
 
         # Fast heuristic classification
-        if any(w in goal_lower for w in ["create", "write", "generate and save", "make a file", "save to", "output/"]):
-            if any(w in goal_lower for w in ["analyze", "review", "compare", "search", "read", "gap", "resume", "job description"]):
+        if any(w in goal_lower for w in ["create", "write", "generate and save", "make a file", "save to", "output/", "yes do it", "do that"]):
+            if any(w in goal_lower for w in ["analyze", "review", "compare", "search", "read", "gap", "resume", "job description", "presentation", "learnflow", "summary"]):
                 return "MULTI_STEP"
             return "ACTION"
         elif any(w in goal_lower for w in ["search", "find", "look up", "retrieve", "mention", "citations"]):
             return "SEARCH"
-        elif any(w in goal_lower for w in ["synthesize", "analyze", "compare", "evaluate", "principles"]):
+        elif any(w in goal_lower for w in ["synthesize", "analyze", "compare", "evaluate", "principles", "brief", "summarize"]):
             return "ANALYSIS"
         elif any(w in goal_lower for w in ["draft", "generate", "summarize", "write"]):
             return "GENERATION"
 
+        history_context = ""
+        if history:
+            recent_turns = history[-3:]
+            history_context = "\nRecent Conversation:\n" + "\n".join(f"{t.get('role')}: {t.get('content')[:120]}" for t in recent_turns)
+
         prompt = f"""Classify this user request into exactly one category:
 Options: {', '.join(CLASSIFICATION_TYPES)}
+{history_context}
 
 User Request: "{user_goal}"
 
 Respond with ONLY the single category name in uppercase."""
         
         try:
-            response = await ollama_client.generate_async(prompt, temperature=0.0)
+            response = await ollama_client.generate_async(prompt, temperature=0.0, timeout=10.0)
             cleaned = response.strip().upper()
             for cat in CLASSIFICATION_TYPES:
                 if cat in cleaned:
@@ -137,13 +145,15 @@ Respond with ONLY the single category name in uppercase."""
         
         return "QUESTION"
 
-    async def generate_plan(self, user_goal: str, workspace_context_hint: str = "") -> ExecutionPlan:
+    async def generate_plan(self, user_goal: str, workspace_context_hint: str = "", history: Optional[List[Dict[str, str]]] = None) -> ExecutionPlan:
         """Generate a structured execution plan for the given goal using Qwen."""
-        classification = await self.classify_intent(user_goal)
+        classification = await self.classify_intent(user_goal, history=history)
         
-        # Check for tailored preset matches for instantaneous response
         goal_lower = user_goal.lower()
+        # 1. Resume + JD preset
         if "resume" in goal_lower and ("job description" in goal_lower or "cover letter" in goal_lower or "application" in goal_lower):
+            is_pdf = bool(re.search(r'\bpdf\b', goal_lower))
+            target_path = "output/tailored_application.pdf" if is_pdf else "output/tailored_application.md"
             return ExecutionPlan(
                 goal=user_goal,
                 classification="MULTI_STEP",
@@ -160,16 +170,53 @@ Respond with ONLY the single category name in uppercase."""
                     ),
                     PlanStep(
                         id=2,
-                        description="Synthesize cover letter & action plan to output/tailored_application.md",
+                        description=f"Synthesize cover letter & action plan to {target_path}",
                         tool="create_file",
-                        params={"filepath": "output/tailored_application.md", "content": ""},
+                        params={"filepath": target_path, "content": ""},
                         risk_level="HIGH",
                         reasoning="Generate customized application document in workspace",
                         expected_output="Verified application document on disk"
                     )
                 ]
             )
-        elif "project_alpha" in goal_lower or "architectural principles" in goal_lower:
+        
+        # 2. LearnFlow LMS Presentation preset (also matches follow-up 'yes do it' when LearnFlow was discussed)
+        is_learnflow = "learnflow" in goal_lower
+        if not is_learnflow and history:
+            recent_hist = " ".join(h.get("content", "") for h in history[-3:]).lower()
+            if "learnflow" in recent_hist and any(w in goal_lower for w in ["yes", "do it", "do that", "summarize", "brief", "presentation", "report", "sure", "proceed"]):
+                is_learnflow = True
+
+        if is_learnflow:
+            target_path = "output/LearnFlow_LMS_Presentation_summary.md"
+            return ExecutionPlan(
+                goal=user_goal,
+                classification="ANALYSIS",
+                summary="Read LearnFlow LMS Presentation, analyze key project components and deliverables, and synthesize verified summary in workspace.",
+                steps=[
+                    PlanStep(
+                        id=1,
+                        description="Read LearnFlow LMS Presentation",
+                        tool="read_file",
+                        params={"filepath": "LearnFlow_LMS_Presentation.pptx"},
+                        risk_level="LOW",
+                        reasoning="Extract slide content and project details from presentation",
+                        expected_output="Extracted presentation text"
+                    ),
+                    PlanStep(
+                        id=2,
+                        description=f"Synthesize presentation summary to {target_path}",
+                        tool="create_file",
+                        params={"filepath": target_path, "content": ""},
+                        risk_level="HIGH",
+                        reasoning="Write verified LearnFlow LMS summary to workspace output directory",
+                        expected_output="Verified markdown summary document"
+                    )
+                ]
+            )
+
+        # 3. Project Alpha preset
+        if "project_alpha" in goal_lower or "architectural principles" in goal_lower:
             return ExecutionPlan(
                 goal=user_goal,
                 classification="ANALYSIS",
@@ -196,9 +243,15 @@ Respond with ONLY the single category name in uppercase."""
                 ]
             )
 
+        history_summary = ""
+        if history:
+            recent_turns = history[-4:]
+            history_summary = "\nRecent Conversation:\n" + "\n".join(f"{t.get('role')}: {t.get('content')[:120]}" for t in recent_turns)
+
         prompt = f"""Goal: "{user_goal}"
 Classification: {classification}
 {f'Workspace context available: {workspace_context_hint}' if workspace_context_hint else ''}
+{history_summary}
 
 Generate the structured JSON plan:"""
 
@@ -257,6 +310,8 @@ Generate the structured JSON plan:"""
 
     def _build_default_steps(self, user_goal: str, classification: str) -> List[PlanStep]:
         """Build deterministic default steps based on classification."""
+        is_pdf = bool(re.search(r'\bpdf\b', user_goal.lower()))
+        ext = ".pdf" if is_pdf else ".md"
         if classification in ["ACTION", "MULTI_STEP"]:
             return [
                 PlanStep(
@@ -270,12 +325,12 @@ Generate the structured JSON plan:"""
                 ),
                 PlanStep(
                     id=2,
-                    description="Create target output document in workspace",
+                    description=f"Create target output document in workspace ({ext})",
                     tool="create_file",
-                    params={"filepath": "output/tailored_plan.md", "content": f"# Response Plan\n\nGenerated for: {user_goal}"},
+                    params={"filepath": f"output/tailored_plan{ext}", "content": f"# Response Plan\n\nGenerated for: {user_goal}"},
                     risk_level="HIGH",
                     reasoning="Write tailored output file to workspace directory",
-                    expected_output="Saved markdown file"
+                    expected_output=f"Saved {ext} file"
                 )
             ]
         else:

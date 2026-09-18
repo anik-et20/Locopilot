@@ -80,25 +80,34 @@ class ActionVerifier:
                 details=f"File size is {size} bytes" if non_empty else "File size is 0 bytes (empty file)"
             ))
 
-            # Check 3: Content readability & match
-            with open(target, "r", encoding="utf-8", errors="replace") as f:
-                actual_content = f.read()
-
-            content_matches = len(actual_content) > 0
-            if expected_content:
-                # Check sample prefix/suffix or key length
-                length_match = abs(len(actual_content) - len(expected_content)) < 50
+            # Check 3: Content readability & format integrity
+            is_pdf = target.suffix.lower() == ".pdf"
+            if is_pdf:
+                with open(target, "rb") as f:
+                    pdf_header = f.read(5)
+                valid_pdf_magic = pdf_header.startswith(b"%PDF")
                 checks.append(VerificationCheck(
-                    name="content_integrity",
-                    passed=length_match,
-                    details=f"Written bytes ({len(actual_content)}) match expected content bytes ({len(expected_content)})."
+                    name="pdf_binary_integrity",
+                    passed=valid_pdf_magic and size > 200,
+                    details=f"Valid binary PDF format confirmed (%PDF header present, {size} bytes)." if valid_pdf_magic else "Invalid PDF format: Missing %PDF binary header."
                 ))
             else:
-                checks.append(VerificationCheck(
-                    name="content_readability",
-                    passed=True,
-                    details=f"File is valid readable UTF-8 text ({len(actual_content)} chars)."
-                ))
+                with open(target, "r", encoding="utf-8", errors="replace") as f:
+                    actual_content = f.read()
+
+                if expected_content:
+                    length_match = abs(len(actual_content) - len(expected_content)) < 50
+                    checks.append(VerificationCheck(
+                        name="content_integrity",
+                        passed=length_match,
+                        details=f"Written bytes ({len(actual_content)}) match expected content bytes ({len(expected_content)})."
+                    ))
+                else:
+                    checks.append(VerificationCheck(
+                        name="content_readability",
+                        passed=True,
+                        details=f"File is valid readable UTF-8 text ({len(actual_content)} chars)."
+                    ))
 
             all_passed = all(c.passed for c in checks)
             return VerificationResult(

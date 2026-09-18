@@ -36,7 +36,7 @@ class OllamaClient:
             return {"online": False, "error": str(e), "target_model": self.model, "model_ready": False}
         return {"online": False, "target_model": self.model, "model_ready": False}
 
-    def generate(self, prompt: str, system: Optional[str] = None, format_json: bool = False, temperature: float = 0.2) -> str:
+    def generate(self, prompt: str, system: Optional[str] = None, format_json: bool = False, temperature: float = 0.2, timeout: Optional[float] = None) -> str:
         """Synchronous completion generation."""
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -51,8 +51,9 @@ class OllamaClient:
         if format_json:
             payload["format"] = "json"
 
+        req_timeout = timeout if timeout is not None else self.timeout
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=req_timeout) as client:
                 response = client.post(f"{self.base_url}/api/generate", json=payload)
                 response.raise_for_status()
                 data = response.json()
@@ -61,7 +62,7 @@ class OllamaClient:
             logger.error(f"Error calling Ollama generate: {e}")
             raise RuntimeError(f"Ollama generation failed: {e}")
 
-    async def generate_async(self, prompt: str, system: Optional[str] = None, format_json: bool = False, temperature: float = 0.2) -> str:
+    async def generate_async(self, prompt: str, system: Optional[str] = None, format_json: bool = False, temperature: float = 0.2, timeout: Optional[float] = None) -> str:
         """Asynchronous completion generation."""
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -76,8 +77,9 @@ class OllamaClient:
         if format_json:
             payload["format"] = "json"
 
+        req_timeout = timeout if timeout is not None else self.timeout
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=req_timeout) as client:
                 response = await client.post(f"{self.base_url}/api/generate", json=payload)
                 response.raise_for_status()
                 data = response.json()
@@ -86,7 +88,7 @@ class OllamaClient:
             logger.error(f"Error in generate_async: {e}")
             raise RuntimeError(f"Ollama async generation failed: {e}")
 
-    async def stream_generate(self, prompt: str, system: Optional[str] = None, temperature: float = 0.2) -> AsyncGenerator[str, None]:
+    async def stream_generate(self, prompt: str, system: Optional[str] = None, temperature: float = 0.2, timeout: Optional[float] = None) -> AsyncGenerator[str, None]:
         """Stream generated tokens from Ollama."""
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -99,7 +101,8 @@ class OllamaClient:
         if system:
             payload["system"] = system
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        req_timeout = timeout if timeout is not None else self.timeout
+        async with httpx.AsyncClient(timeout=req_timeout) as client:
             async with client.stream("POST", f"{self.base_url}/api/generate", json=payload) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():

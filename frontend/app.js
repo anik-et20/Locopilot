@@ -1,6 +1,7 @@
 /**
  * LocalGPT Frontend Application Controller
- * Handles SSE real-time streaming, interactive permission gates, file browsing, and audit logging.
+ * Handles SSE real-time streaming, session management, file uploads, 
+ * interactive permission gates, file browsing, watchdog timers, and visual audit logging.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -11,15 +12,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const submitGoalBtn = document.getElementById('submitGoalBtn');
   const workspaceFileList = document.getElementById('workspaceFileList');
   const refreshFilesBtn = document.getElementById('refreshFilesBtn');
+  const uploadFilesBtn = document.getElementById('uploadFilesBtn');
+  const workspaceFileInput = document.getElementById('workspaceFileInput');
   const ollamaModelName = document.getElementById('ollamaModelName');
   const stageRibbon = document.getElementById('stageRibbon');
   const clearChatBtn = document.getElementById('clearChatBtn');
+  const newChatBtn = document.getElementById('newChatBtn');
   
+  // Sessions Section
+  const sessionsListContainer = document.getElementById('sessionsListContainer');
+  const sessionsCountBadge = document.getElementById('sessionsCountBadge');
+
   // Audit Drawer
   const auditDrawer = document.getElementById('auditDrawer');
   const auditToggleBtn = document.getElementById('auditToggleBtn');
   const closeAuditBtn = document.getElementById('closeAuditBtn');
   const refreshAuditBtn = document.getElementById('refreshAuditBtn');
+  const exportAuditCsvBtn = document.getElementById('exportAuditCsvBtn');
   const auditFilterInput = document.getElementById('auditFilterInput');
   const auditStreamContainer = document.getElementById('auditStreamContainer');
 
@@ -30,42 +39,150 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalFileContent = document.getElementById('modalFileContent');
   const closeModalBtn = document.getElementById('closeModalBtn');
 
-  // Presets
+  // Demo Presets
   const demoPreset1 = document.getElementById('demoPreset1');
   const demoPreset2 = document.getElementById('demoPreset2');
   const demoPreset3 = document.getElementById('demoPreset3');
 
-  let currentEventSource = null;
+  // State
+  let currentSessionId = generateSessionId();
+  let chatHistory = [];
+  let currentAssistantBubble = null;
   let allAuditEntries = [];
+  let allSessions = [];
+  let watchdogTimer = null;
+  const WATCHDOG_TIMEOUT_MS = 120000; // 120 seconds safety timeout (ample headroom for local CPU inference)
+
+  function generateSessionId() {
+    return 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  }
 
   // Initialize
   checkSystemHealth();
   fetchWorkspaceFiles();
   fetchAuditLogs();
-  fetchChatHistory();
+  fetchSessions();
 
   // Polling for health check
   setInterval(checkSystemHealth, 20000);
 
-  // --- API Functions ---
+  // --- Session Management (Issue 5) ---
 
-  async function fetchChatHistory() {
+  async function fetchSessions() {
     try {
-      const res = await fetch('/api/chat/history');
+      const res = await fetch('/api/chat/sessions');
       if (res.ok) {
         const data = await res.json();
-        chatHistory = data.history || [];
-        if (chatHistory.length > 0) {
-          const hero = document.getElementById('welcomeHero');
-          if (hero) hero.remove();
+        allSessions = data.sessions || [];
+        renderSessionsList(allSessions);
+      }
+    } catch (e) {
+      console.warn('Failed to load sessions:', e);
+      if (sessionsListContainer) {
+        sessionsListContainer.innerHTML = `<div class="loading-state">No sessions found</div>`;
+      }
+    }
+  }
+
+  function renderSessionsList(sessions) {
+    if (!sessionsListContainer) return;
+    
+    if (sessionsCountBadge) {
+      sessionsCountBadge.textContent = `${sessions.length} session${sessions.length === 1 ? '' : 's'}`;
+    }
+
+    if (!sessions.length) {
+      sessionsListContainer.innerHTML = `<div class="loading-state" style="padding:10px;">No saved sessions yet</div>`;
+      return;
+    }
+
+    sessionsListContainer.innerHTML = '';
+    sessions.forEach(sess => {
+      const item = document.createElement('div');
+      const isActive = sess.id === currentSessionId;
+      item.className = `session-item ${isActive ? 'active' : ''}`;
+      item.id = `session-card-${sess.id}`;
+
+      const previewText = sess.preview || 'Empty session';
+      const timeStr = formatTimestamp(sess.updated_at || sess.created_at);
+
+      item.innerHTML = `
+        <div class="session-item-left">
+          <div class="session-item-preview" title="${escapeHtml(previewText)}">${escapeHtml(previewText)}</div>
+          <div class="session-item-time">${timeStr} &bull; ${sess.message_count || 0} msgs</div>
+        </div>
+        <button class="session-delete-btn" title="Delete Session" data-session-id="${sess.id}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      `;
+
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.session-delete-btn')) return;
+        loadSession(sess.id);
+      });
+
+      const delBtn = item.querySelector('.session-delete-btn');
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSession(sess.id);
+      });
+
+      sessionsListContainer.appendChild(item);
+    });
+  }
+
+  async function loadSession(sessionId) {
+    try {
+      currentSessionId = sessionId;
+      const res = await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        chatHistory = data.messages || [];
+        feedContainer.innerHTML = '';
+        currentAssistantBubble = null;
+        removeThinkingIndicator();
+
+        if (chatHistory.length === 0) {
+          feedContainer.innerHTML = WELCOME_HERO_HTML;
+        } else {
           chatHistory.forEach(msg => {
             appendChatBubble(msg.role, msg.content);
           });
         }
+        renderSessionsList(allSessions);
       }
     } catch (e) {
-      console.warn('Failed to load chat history:', e);
+      console.error('Failed to load session details:', e);
     }
+  }
+
+  async function deleteSession(sessionId) {
+    try {
+      await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      allSessions = allSessions.filter(s => s.id !== sessionId);
+      if (currentSessionId === sessionId) {
+        startNewChatSession();
+      } else {
+        renderSessionsList(allSessions);
+      }
+    } catch (e) {
+      console.error('Failed to delete session:', e);
+    }
+  }
+
+  function startNewChatSession() {
+    currentSessionId = generateSessionId();
+    chatHistory = [];
+    currentAssistantBubble = null;
+    goalInput.value = '';
+    removeThinkingIndicator();
+    feedContainer.innerHTML = WELCOME_HERO_HTML;
+    resetStages();
+    fetchSessions();
+    console.log('Started new chat session:', currentSessionId);
   }
 
   const WELCOME_HERO_HTML = `
@@ -88,20 +205,16 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
   `;
 
-  async function clearChat() {
-    try {
-      await fetch('/api/chat/history', { method: 'DELETE' });
-    } catch (e) {
-      console.warn('Backend history delete notice:', e);
+  async function clearCurrentChat() {
+    if (currentSessionId) {
+      try {
+        await fetch(`/api/chat/sessions/${encodeURIComponent(currentSessionId)}`, { method: 'DELETE' });
+      } catch (e) {
+        console.warn('Session delete warning:', e);
+      }
     }
-    chatHistory = [];
-    currentAssistantBubble = null;
-    goalInput.value = '';
-    removeThinkingIndicator();
-    feedContainer.innerHTML = WELCOME_HERO_HTML;
-    resetStages();
+    startNewChatSession();
     fetchAuditLogs();
-    console.log('Chat history cleared and UI reset.');
   }
 
   async function checkSystemHealth() {
@@ -117,6 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
       console.warn('Health check error:', e);
     }
   }
+
+  // --- Workspace File Management & Upload (Issue 1) ---
 
   async function fetchWorkspaceFiles() {
     try {
@@ -161,6 +276,53 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  async function handleFileUpload(files) {
+    if (!files || files.length === 0) return;
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+
+    uploadFilesBtn.disabled = true;
+    uploadFilesBtn.innerHTML = `<span>Uploading...</span>`;
+
+    try {
+      const res = await fetch('/api/workspace/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        appendEventCard('understand', 'Files Uploaded & Reindexed', `
+          <div>Successfully imported <strong>${data.count}</strong> file(s) into workspace:</div>
+          <div style="font-size:0.75rem; color:var(--accent-cyan); margin-top:4px;">
+            ${(data.uploaded || []).map(f => `&bull; ${escapeHtml(f)}`).join('<br>')}
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Workspace knowledge index rebuilt automatically.</div>
+        `);
+        fetchWorkspaceFiles();
+      } else {
+        const err = await res.json();
+        alert('File upload failed: ' + (err.detail || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('File upload network error: ' + e.message);
+    } finally {
+      uploadFilesBtn.disabled = false;
+      uploadFilesBtn.innerHTML = `
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <span>Upload</span>
+      `;
+      workspaceFileInput.value = '';
+    }
+  }
+
   async function openFileModal(relativePath, fileName) {
     modalFileName.textContent = fileName;
     modalFilePath.textContent = relativePath;
@@ -203,9 +365,6 @@ document.addEventListener('DOMContentLoaded', () => {
     nodes.forEach(n => n.className = 'stage-node');
   }
 
-  let chatHistory = [];
-  let currentAssistantBubble = null;
-
   function removeThinkingIndicator() {
     const el = document.getElementById('activeThinkingCard');
     if (el) el.remove();
@@ -229,6 +388,39 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     feedContainer.appendChild(card);
     feedContainer.scrollTop = feedContainer.scrollHeight;
+  }
+
+  // --- Watchdog Safety Timer (Issue 4) ---
+
+  function resetWatchdog(abortController) {
+    if (watchdogTimer) clearTimeout(watchdogTimer);
+    watchdogTimer = setTimeout(() => {
+      console.warn(`[Watchdog] No event received in ${WATCHDOG_TIMEOUT_MS / 1000}s. Triggering safety timeout.`);
+      if (abortController) {
+        try { abortController.abort(); } catch (e) {}
+      }
+      removeThinkingIndicator();
+      if (currentAssistantBubble && (!currentAssistantBubble.dataset.rawText || !currentAssistantBubble.dataset.rawText.trim())) {
+        currentAssistantBubble.remove();
+        currentAssistantBubble = null;
+      }
+      submitGoalBtn.disabled = false;
+      appendEventCard('timeout', 'Response Watchdog Timeout', `
+        <div style="color: #fda4af; font-size: 0.84rem;">
+          The local model or pipeline took longer than ${WATCHDOG_TIMEOUT_MS / 1000} seconds to yield a response token.
+        </div>
+        <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 4px;">
+          The stream has been safely closed and your input box is unlocked. You can retry with a more specific query or verify Ollama is healthy.
+        </div>
+      `);
+    }, WATCHDOG_TIMEOUT_MS);
+  }
+
+  function clearWatchdog() {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
   }
 
   // --- Run Agent Pipeline (SSE) ---
@@ -257,11 +449,19 @@ document.addEventListener('DOMContentLoaded', () => {
     setStageActive('understand');
     submitGoalBtn.disabled = true;
 
+    const abortController = new AbortController();
+    resetWatchdog(abortController);
+
     try {
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: goalText, history: chatHistory })
+        body: JSON.stringify({
+          message: goalText,
+          history: chatHistory,
+          session_id: currentSessionId
+        }),
+        signal: abortController.signal
       });
 
       if (!response.ok) {
@@ -278,6 +478,8 @@ document.addEventListener('DOMContentLoaded', () => {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+
+        resetWatchdog(abortController); // Heartbeat on incoming chunk
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n\n');
@@ -305,13 +507,17 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
     } catch (e) {
-      removeThinkingIndicator();
-      appendEventCard('error', 'Execution Error', e.message);
+      if (e.name !== 'AbortError') {
+        removeThinkingIndicator();
+        appendEventCard('error', 'Execution Error', e.message);
+      }
     } finally {
+      clearWatchdog();
       removeThinkingIndicator();
       submitGoalBtn.disabled = false;
       fetchWorkspaceFiles();
       fetchAuditLogs();
+      fetchSessions();
     }
   }
 
@@ -322,23 +528,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     switch (event.event) {
       case 'ROUTING':
+        setStageActive('understand');
         if (event.target === 'AGENT') {
-          setStageActive('understand');
           showThinkingIndicator(event.message || 'Executing agent workspace workflow...');
         } else {
-          setStageActive('understand');
-          removeThinkingIndicator();
+          showThinkingIndicator(event.message || 'Consulting local knowledge base...');
         }
         break;
 
       case 'CHAT_START':
-        removeThinkingIndicator();
-        currentAssistantBubble = appendChatBubble('assistant', '');
-        currentAssistantBubble.dataset.rawText = '';
+        showThinkingIndicator('Generating response with local engine...');
         break;
 
       case 'CHAT_TOKEN':
         removeThinkingIndicator();
+        if (!currentAssistantBubble) {
+          currentAssistantBubble = appendChatBubble('assistant', '');
+          currentAssistantBubble.dataset.rawText = '';
+        }
         if (currentAssistantBubble) {
           const raw = (currentAssistantBubble.dataset.rawText || '') + event.token;
           currentAssistantBubble.dataset.rawText = raw;
@@ -354,6 +561,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentAssistantBubble && currentAssistantBubble.dataset.rawText) {
           const contentDiv = currentAssistantBubble.querySelector('.bubble-content');
           contentDiv.innerHTML = renderMarkdown(currentAssistantBubble.dataset.rawText);
+        } else if (currentAssistantBubble && (!currentAssistantBubble.dataset.rawText || !currentAssistantBubble.dataset.rawText.trim())) {
+          currentAssistantBubble.remove();
+          currentAssistantBubble = null;
         }
         break;
 
@@ -364,12 +574,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
       case 'UNDERSTAND':
         removeThinkingIndicator();
-        setStageActive('understand');
-        appendEventCard('understand', 'Intent Classification', `
-          <div>Classified Intent: <span class="badge-tag">${event.classification}</span></div>
-          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">${event.message}</div>
-        `);
-        break;
         setStageActive('understand');
         appendEventCard('understand', 'Intent Classification', `
           <div>Classified Intent: <span class="badge-tag">${event.classification}</span></div>
@@ -421,7 +625,6 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
 
       case 'STEP_STARTED':
-        // Highlight active step
         const stepRow = document.getElementById(`step-row-${event.step_id}`);
         if (stepRow) stepRow.style.borderColor = 'var(--accent-cyan)';
         break;
@@ -441,7 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
 
       case 'PERMISSION_RESOLVED':
-        // Notification handled by card update
+        // Handled by card update
         break;
 
       case 'TOOL_EXECUTED':
@@ -449,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appendEventCard('tool', `Executed Tool: ${event.tool}`, `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <span style="font-size:0.75rem; color:var(--text-dim);">Execution Time: ${event.execution_time_ms} ms</span>
-            <span style="font-size:0.75rem; color:${event.success ? 'var(--accent-emerald)' : 'var(--accent-rose)'};">
+            <span style="font-size:0.75rem; color:${event.success ? 'var(--accent-emerald)' : 'var(--accent-rose)'}; font-weight:600;">
               ${event.success ? '✓ SUCCESS' : '✗ ERROR'}
             </span>
           </div>
@@ -474,7 +677,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ${checksHtml}
           </div>
         `);
-        // Refresh files list
         fetchWorkspaceFiles();
         break;
 
@@ -488,6 +690,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         appendFinalReportCard(event.final_answer, finalSourcesHtml);
+        if (appendTextFn && event.final_answer) {
+          appendTextFn(event.final_answer);
+        }
         fetchAuditLogs();
         break;
 
@@ -496,7 +701,6 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
     }
 
-    // Scroll to bottom
     feedContainer.scrollTop = feedContainer.scrollHeight;
   }
 
@@ -605,11 +809,11 @@ document.addEventListener('DOMContentLoaded', () => {
     return bubble;
   }
 
-  // --- Audit Trail Drawer Logic ---
+  // --- Audit Trail Presentation & CSV Export (Issue 3) ---
 
   async function fetchAuditLogs() {
     try {
-      const res = await fetch('/api/audit/logs?limit=50');
+      const res = await fetch('/api/audit/logs?limit=80');
       if (res.ok) {
         const data = await res.json();
         allAuditEntries = data.entries || [];
@@ -633,23 +837,87 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     auditStreamContainer.innerHTML = '';
-    // Show newest first
-    filtered.slice().reverse().forEach(entry => {
+    // Show newest records first
+    filtered.slice().reverse().forEach((entry, idx) => {
       const el = document.createElement('div');
       el.className = 'audit-entry-card';
 
-      const time = entry.timestamp ? entry.timestamp.split('T')[1].replace('Z', '') : '';
+      const timeStr = formatTimestamp(entry.timestamp);
+      const eventType = entry.event_type || 'EVENT';
+      
+      // Determine badge class
+      let badgeClass = 'audit-badge-default';
+      if (eventType.includes('TOOL')) badgeClass = 'audit-badge-tool';
+      else if (eventType.includes('PERMISSION')) badgeClass = 'audit-badge-permission';
+      else if (eventType.includes('VERIF')) badgeClass = 'audit-badge-verify';
+      else if (eventType.includes('SESSION')) badgeClass = 'audit-badge-session';
+      else if (eventType.includes('ERROR')) badgeClass = 'audit-badge-error';
+
+      // Build readable human summary
+      let summaryText = '';
+      if (eventType === 'TOOL_EXECUTION') {
+        summaryText = `Executed tool <strong>${escapeHtml(entry.tool || 'unknown')}</strong>`;
+      } else if (eventType === 'PERMISSION_REQUEST') {
+        summaryText = `Requested permission for <strong>${escapeHtml(entry.tool || 'action')}</strong>`;
+      } else if (eventType === 'PERMISSION_RESPONSE') {
+        summaryText = `User decision: <strong>${escapeHtml(entry.decision || 'RESOLVED')}</strong> for ${escapeHtml(entry.tool || 'step')}`;
+      } else if (eventType === 'VERIFICATION') {
+        summaryText = escapeHtml(entry.summary || 'Post-action disk state verified');
+      } else if (eventType === 'SESSION_START') {
+        summaryText = `Session goal: <em>${escapeHtml(entry.goal || 'General request')}</em>`;
+      } else if (eventType === 'SYSTEM_STARTUP') {
+        summaryText = `LocalGPT system initialized`;
+      } else {
+        summaryText = escapeHtml(entry.action || entry.message || JSON.stringify(entry));
+      }
+
+      // Build meta pills
+      let metaPills = '';
+      if (entry.risk_level) {
+        const isHigh = entry.risk_level === 'HIGH' || entry.risk_level === 'CRITICAL';
+        metaPills += `<span class="audit-pill ${isHigh ? 'audit-pill-risk-high' : 'audit-pill-risk-low'}">${entry.risk_level} RISK</span>`;
+      }
+      if (entry.success !== undefined) {
+        metaPills += `<span class="audit-pill ${entry.success ? 'audit-pill-success' : 'audit-pill-failure'}">${entry.success ? '✓ SUCCESS' : '✗ FAILED'}</span>`;
+      }
+      if (entry.execution_time_ms) {
+        metaPills += `<span class="audit-pill" style="color:var(--text-dim);">${entry.execution_time_ms} ms</span>`;
+      }
+
+      const cardId = `audit-entry-${idx}`;
       el.innerHTML = `
-        <div class="audit-entry-head">
-          <span>${entry.event_type}</span>
-          <span style="color:var(--text-dim);">${time}</span>
+        <div class="audit-card-head">
+          <span class="audit-badge ${badgeClass}">${escapeHtml(eventType)}</span>
+          <span class="audit-card-time">${timeStr}</span>
         </div>
-        <div class="audit-entry-body">
-          ${escapeHtml(JSON.stringify(entry, null, 2))}
+        <div class="audit-card-summary">${summaryText}</div>
+        <div class="audit-card-meta">
+          ${metaPills}
+          <button class="audit-details-toggle" data-target="${cardId}">View Raw</button>
         </div>
+        <div class="audit-details-content" id="${cardId}" style="display:none;">${escapeHtml(JSON.stringify(entry, null, 2))}</div>
       `;
+
+      const toggleBtn = el.querySelector('.audit-details-toggle');
+      toggleBtn.addEventListener('click', () => {
+        const content = el.querySelector(`#${cardId}`);
+        const isHidden = content.style.display === 'none';
+        content.style.display = isHidden ? 'block' : 'none';
+        toggleBtn.textContent = isHidden ? 'Hide Raw' : 'View Raw';
+      });
+
       auditStreamContainer.appendChild(el);
     });
+  }
+
+  function downloadAuditExport(format = 'csv') {
+    const url = `/api/audit/export?format=${encodeURIComponent(format)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `localgpt_audit_${Date.now()}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   // --- Event Listeners ---
@@ -663,7 +931,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Enter to submit (Shift+Enter for newline)
   goalInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -671,8 +938,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  if (newChatBtn) {
+    newChatBtn.addEventListener('click', startNewChatSession);
+  }
+
   if (clearChatBtn) {
-    clearChatBtn.addEventListener('click', clearChat);
+    clearChatBtn.addEventListener('click', clearCurrentChat);
+  }
+
+  if (uploadFilesBtn && workspaceFileInput) {
+    uploadFilesBtn.addEventListener('click', () => workspaceFileInput.click());
+    workspaceFileInput.addEventListener('change', (e) => {
+      handleFileUpload(e.target.files);
+    });
   }
 
   refreshFilesBtn.addEventListener('click', fetchWorkspaceFiles);
@@ -684,6 +962,10 @@ document.addEventListener('DOMContentLoaded', () => {
   closeAuditBtn.addEventListener('click', () => auditDrawer.classList.remove('open'));
   refreshAuditBtn.addEventListener('click', fetchAuditLogs);
   auditFilterInput.addEventListener('input', () => renderAuditStream(allAuditEntries));
+
+  if (exportAuditCsvBtn) {
+    exportAuditCsvBtn.addEventListener('click', () => downloadAuditExport('csv'));
+  }
 
   closeModalBtn.addEventListener('click', () => { fileModal.style.display = 'none'; });
   fileModal.addEventListener('click', (e) => {
@@ -710,6 +992,19 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // --- Helpers ---
+
+  function formatTimestamp(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) {
+        return isoStr.includes('T') ? isoStr.split('T')[1].replace('Z', '') : isoStr;
+      }
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) {
+      return isoStr;
+    }
+  }
 
   function escapeHtml(str) {
     if (typeof str !== 'string') return '';
@@ -754,13 +1049,13 @@ document.addEventListener('DOMContentLoaded', () => {
     text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
     text = text.replace(/\*([^\*\n]+)\*/g, '<em>$1</em>');
 
-    // Blockquotes: > quote
+    // Blockquotes
     text = text.replace(/^>\s?(.*$)/gim, '<blockquote>$1</blockquote>');
 
-    // Numbered lists: 1. Item
+    // Numbered lists
     text = text.replace(/^(\d+)\.\s+(.*$)/gim, '<div class="list-item-ordered"><span class="list-num">$1.</span> $2</div>');
 
-    // Bullet lists: - Item or * Item
+    // Bullet lists
     text = text.replace(/^[\*\-]\s+(.*$)/gim, '<div class="list-item-bullet"><span class="bullet-dot">&bull;</span> $1</div>');
 
     // Paragraph breaks

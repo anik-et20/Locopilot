@@ -1,14 +1,20 @@
 """
-LocalGPT Runner Script
+LocalPilot Runner Script
 Launches the FastAPI backend and serves the interactive frontend dashboard.
 """
 import sys
+from setup_check import check_environment
 from backend.core.config import settings
 import uvicorn
 
 def main():
+    # Run pre-flight checks
+    is_ready = check_environment(auto_exit=False)
+    if not is_ready:
+        sys.exit(1)
+
     print("=" * 65)
-    print("  [*] Starting LocalGPT - Privacy-First AI Workspace Prototype")
+    print("  [*] Starting LocalPilot - Privacy-First AI Workspace Prototype")
     print(f"  [*] Mode: 100% On-Device Local Processing")
     print(f"  [*] LLM Engine: Ollama ({settings.ollama_model})")
     print(f"  [*] Workspace: {settings.workspace_dir}")

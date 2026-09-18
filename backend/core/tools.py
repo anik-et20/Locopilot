@@ -82,8 +82,12 @@ def read_file(filepath: str) -> Dict[str, Any]:
     if not target_file.is_file():
         raise IsADirectoryError(f"Path is a directory, not a file: {filepath}")
 
-    with open(target_file, "r", encoding="utf-8", errors="replace") as f:
-        content = f.read()
+    ext = target_file.suffix.lower()
+    if ext in [".pdf", ".pptx", ".docx"]:
+        content = knowledge_base.load_document(target_file)
+    else:
+        with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
 
     rel_path = target_file.relative_to(settings.workspace_dir).as_posix()
     return {
@@ -109,8 +113,18 @@ def create_file(filepath: str, content: str) -> Dict[str, Any]:
     target_file = _safe_resolve_path(filepath)
     target_file.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(target_file, "w", encoding="utf-8") as f:
-        f.write(content)
+    is_pdf = target_file.suffix.lower() == ".pdf"
+    if is_pdf:
+        try:
+            from .pdf_generator import generate_pdf_from_markdown
+            generate_pdf_from_markdown(content, target_file)
+        except ImportError:
+            raise RuntimeError("PDF generation failed: 'reportlab' is not installed. Please run `pip install reportlab`.")
+        except Exception as e:
+            raise RuntimeError(f"PDF generation failed: {e}")
+    else:
+        with open(target_file, "w", encoding="utf-8") as f:
+            f.write(content)
 
     # Re-index knowledge base so newly created file is searchable
     knowledge_base.build_index()
@@ -120,8 +134,9 @@ def create_file(filepath: str, content: str) -> Dict[str, Any]:
         "filepath": rel_path,
         "filename": target_file.name,
         "size_bytes": target_file.stat().st_size,
-        "bytes_written": len(content.encode("utf-8")),
-        "message": f"Successfully created file: {rel_path}"
+        "bytes_written": target_file.stat().st_size,
+        "format": "PDF" if is_pdf else "TEXT",
+        "message": f"Successfully created {'binary PDF' if is_pdf else 'file'}: {rel_path}"
     }
 
 def create_folder(folderpath: str) -> Dict[str, Any]:

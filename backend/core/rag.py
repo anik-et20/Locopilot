@@ -37,7 +37,7 @@ class KnowledgeBase:
         self._indexed_files: List[str] = []
 
     def load_document(self, file_path: Path) -> str:
-        """Load text from MD, TXT, or PDF files."""
+        """Load text from MD, TXT, PDF, PPTX, DOCX, JSON, PY, or CSV files."""
         ext = file_path.suffix.lower()
         if ext in [".md", ".txt", ".markdown", ".json", ".py", ".csv"]:
             try:
@@ -58,6 +58,39 @@ class KnowledgeBase:
                 return "\n\n".join(text_pages)
             except Exception as e:
                 logger.error(f"Error reading PDF file {file_path}: {e}")
+                return ""
+        elif ext == ".pptx":
+            try:
+                import pptx
+                prs = pptx.Presentation(str(file_path))
+                slide_texts = []
+                for idx, slide in enumerate(prs.slides):
+                    texts = []
+                    for shape in slide.shapes:
+                        if shape.has_text_frame:
+                            for paragraph in shape.text_frame.paragraphs:
+                                t = paragraph.text.strip()
+                                if t:
+                                    texts.append(t)
+                    if texts:
+                        slide_texts.append(f"--- Slide {idx+1} ---\n" + "\n".join(texts))
+                return "\n\n".join(slide_texts)
+            except Exception as e:
+                logger.error(f"Error reading PPTX file {file_path}: {e}")
+                return ""
+        elif ext == ".docx":
+            try:
+                import docx
+                doc = docx.Document(str(file_path))
+                paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+                for table in doc.tables:
+                    for row in table.rows:
+                        row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                        if row_text:
+                            paragraphs.append(row_text)
+                return "\n\n".join(paragraphs)
+            except Exception as e:
+                logger.error(f"Error reading DOCX file {file_path}: {e}")
                 return ""
         return ""
 
@@ -123,7 +156,7 @@ class KnowledgeBase:
         """Scan workspace, load and chunk all supported documents, and index them."""
         self.chunks = []
         self._indexed_files = []
-        supported_exts = {".md", ".txt", ".pdf", ".markdown", ".json"}
+        supported_exts = {".md", ".txt", ".pdf", ".markdown", ".json", ".py", ".csv", ".pptx", ".docx"}
 
         if not self.workspace_dir.exists():
             return {"status": "workspace_not_found", "total_chunks": 0, "indexed_files": []}
@@ -223,10 +256,11 @@ class KnowledgeBase:
         sources = []
         seen_files = set()
 
-        for res in results:
+        for res in results[:3]:  # Top 3 most relevant chunks
             chunk = res.chunk
             source_tag = f"[{chunk.relative_path} | Chunk #{chunk.metadata.get('chunk_index', 0)} (Relevance: {res.score:.2f})]"
-            context_parts.append(f"--- SOURCE: {source_tag} ---\n{chunk.content}")
+            content_snippet = chunk.content[:600].strip()
+            context_parts.append(f"--- SOURCE: {source_tag} ---\n{content_snippet}")
             
             if chunk.relative_path not in seen_files:
                 sources.append({

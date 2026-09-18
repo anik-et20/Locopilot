@@ -161,9 +161,63 @@ async def chat_stream_endpoint(req: ChatRequest):
         }
     )
 
+from fastapi import FastAPI, HTTPException, Request, Query, UploadFile, File, Response
+import io
+import csv
+
+@app.post("/api/workspace/upload")
+async def upload_workspace_files(files: list[UploadFile] = File(...)):
+    """Upload user documents directly into the workspace and trigger index rebuild."""
+    uploaded_files = []
+    for file in files:
+        if not file.filename:
+            continue
+        safe_filename = Path(file.filename).name
+        target_path = settings.workspace_dir / safe_filename
+        content = await file.read()
+        with open(target_path, "wb") as f:
+            f.write(content)
+        uploaded_files.append({
+            "filename": safe_filename,
+            "size_bytes": len(content)
+        })
+
+    # Rebuild knowledge base
+    reindex_res = knowledge_base.build_index()
+
+    return {
+        "status": "success",
+        "count": len(uploaded_files),
+        "uploaded_count": len(uploaded_files),
+        "uploaded": [f["filename"] for f in uploaded_files],
+        "files": uploaded_files,
+        "indexed_chunks": reindex_res.get("total_chunks", 0)
+    }
+
+@app.get("/api/chat/sessions")
+async def get_chat_sessions():
+    """Retrieve all past conversational chat sessions."""
+    return {"sessions": chat_history_db.list_sessions()}
+
+@app.get("/api/chat/sessions/{session_id}")
+async def get_session_details(session_id: str):
+    """Retrieve full messages for a specific chat session."""
+    return {
+        "session_id": session_id,
+        "messages": chat_history_db.get_session_messages(session_id)
+    }
+
+@app.delete("/api/chat/sessions/{session_id}")
+async def delete_chat_session(session_id: str):
+    """Delete a specific chat session."""
+    success = chat_history_db.delete_session(session_id)
+    return {"status": "success" if success else "not_found", "session_id": session_id}
+
 @app.get("/api/chat/history")
-async def get_chat_history():
-    """Retrieve all conversational chat history."""
+async def get_chat_history(session_id: Optional[str] = None):
+    """Retrieve chat history (either for specific session or latest)."""
+    if session_id:
+        return {"history": chat_history_db.get_session_messages(session_id)}
     return {"history": chat_history_db.get_all()}
 
 @app.delete("/api/chat/history")
@@ -200,6 +254,52 @@ async def get_audit_logs(session_id: Optional[str] = None, limit: int = 100):
         "total_entries": len(entries),
         "entries": entries
     }
+
+@app.get("/api/audit/export")
+async def export_audit_logs(format: str = Query("csv", description="Format: csv or text")):
+    """Export the append-only audit trail as a formatted CSV or plain text document."""
+    entries = audit_logger.get_entries(limit=1000)
+    
+    if format.lower() == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Timestamp", "Session ID", "Event Type", "Goal / Action", "Risk Level", "Outcome / Details"])
+        
+        for e in entries:
+            timestamp = e.get("timestamp", "")
+            sess = e.get("session_id", "")
+            etype = e.get("event_type", "")
+            action = e.get("action") or e.get("goal") or ""
+            risk = e.get("risk_level", "")
+            details = json.dumps(e.get("details") or e.get("execution_result") or e.get("verification_result") or "")
+            writer.writerow([timestamp, sess, etype, action, risk, details])
+            
+        csv_content = output.getvalue()
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=localpilot_audit_trail.csv"}
+        )
+    else:
+        # Plain text
+        lines = ["=" * 75, "  LocalPilot Append-Only Audit Trail Export", "=" * 75, ""]
+        for e in entries:
+            t = e.get("timestamp", "")
+            lines.append(f"[{t}] {e.get('event_type')} | Session: {e.get('session_id')}")
+            if e.get("goal"):
+                lines.append(f"  Goal: {e.get('goal')}")
+            if e.get("action"):
+                lines.append(f"  Action: {e.get('action')} (Risk: {e.get('risk_level', 'LOW')})")
+            if e.get("details"):
+                lines.append(f"  Details: {json.dumps(e.get('details'))}")
+            lines.append("-" * 75)
+            
+        text_content = "\n".join(lines)
+        return Response(
+            content=text_content,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=localpilot_audit_trail.txt"}
+        )
 
 # Mount Frontend static files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"

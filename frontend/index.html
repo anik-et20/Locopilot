@@ -34,15 +34,22 @@
           <span class="pulse-dot blue"></span>
           <span id="ollamaModelName">Qwen 3 (8B)</span>
         </div>
-        <button class="nav-btn" id="clearChatBtn" title="Clear Chat History" style="color: #fb7185; border-color: rgba(244, 63, 94, 0.4);">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button class="nav-btn btn-primary-nav" id="newChatBtn" title="Start a New Chat Session">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          New Chat
+        </button>
+        <button class="nav-btn" id="clearChatBtn" title="Clear Current Chat History" style="color: #fb7185; border-color: rgba(244, 63, 94, 0.4);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
           </svg>
-          Clear Chat
+          Clear
         </button>
         <button class="nav-btn" id="auditToggleBtn" title="Open Append-Only Audit Trail">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
             <line x1="16" y1="13" x2="8" y2="13"/>
@@ -96,16 +103,39 @@
 
     <!-- Main Content Area (Sidebar + Execution Stream) -->
     <main class="main-container">
-      <!-- Left Workspace Panel -->
+      <!-- Left Sidebar Panel -->
       <aside class="sidebar-panel">
+        <!-- Chat Sessions History Section -->
+        <div class="panel-section sessions-section">
+          <div class="section-header">
+            <h3>Past Sessions</h3>
+            <span class="badge-sub" id="sessionsCountBadge">0 sessions</span>
+          </div>
+          <div class="sessions-list" id="sessionsListContainer">
+            <div class="loading-state">Loading past sessions...</div>
+          </div>
+        </div>
+
+        <!-- Personal Workspace Files Section -->
         <div class="panel-section">
           <div class="section-header">
             <h3>Personal Workspace</h3>
-            <button class="icon-btn" id="refreshFilesBtn" title="Refresh workspace files">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-              </svg>
-            </button>
+            <div class="section-header-actions">
+              <button class="icon-btn-sm" id="uploadFilesBtn" title="Upload local files to workspace">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <span>Upload</span>
+              </button>
+              <input type="file" id="workspaceFileInput" multiple style="display: none;" />
+              <button class="icon-btn" id="refreshFilesBtn" title="Refresh workspace files">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="workspace-file-tree" id="workspaceFileList">
             <div class="loading-state">Loading workspace documents...</div>
@@ -198,8 +228,16 @@
         <button class="icon-btn" id="closeAuditBtn">&times;</button>
       </div>
       <div class="audit-controls">
-        <input type="text" id="auditFilterInput" class="audit-search" placeholder="Filter audit events (e.g., PERMISSION, TOOL)...">
-        <button class="btn-secondary-sm" id="refreshAuditBtn">Refresh</button>
+        <input type="text" id="auditFilterInput" class="audit-search" placeholder="Filter audit events (e.g. TOOL, PERMISSION)...">
+        <button class="btn-secondary-sm" id="refreshAuditBtn" title="Refresh records">Refresh</button>
+        <button class="btn-secondary-sm btn-export" id="exportAuditCsvBtn" title="Export audit trail as CSV">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          CSV
+        </button>
       </div>
       <div class="audit-stream" id="auditStreamContainer">
         <div class="loading-state">Loading audit entries...</div>
@@ -225,6 +263,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="/static/app.js?v=1.0.6"></script>
+  <script src="/static/app.js?v=1.0.8"></script>
 </body>
 </html>
