@@ -6,11 +6,12 @@ Enforces strict schema validation, deterministic tool boundaries, and auto-repai
 import json
 import re
 import logging
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ValidationError
 from .config import settings
 from .llm import ollama_client
-from .tools import TOOL_REGISTRY
+from .tools import find_file_in_goal, TOOL_REGISTRY
 
 logger = logging.getLogger("localgpt.planner")
 
@@ -111,7 +112,7 @@ class AgentPlanner:
 
         # Fast heuristic classification
         if any(w in goal_lower for w in ["create", "write", "generate and save", "make a file", "save to", "output/", "yes do it", "do that"]):
-            if any(w in goal_lower for w in ["analyze", "review", "compare", "search", "read", "gap", "resume", "job description", "presentation", "learnflow", "summary"]):
+            if any(w in goal_lower for w in ["analyze", "review", "compare", "search", "read", "gap", "job description"]):
                 return "MULTI_STEP"
             return "ACTION"
         elif any(w in goal_lower for w in ["search", "find", "look up", "retrieve", "mention", "citations"]):
@@ -135,7 +136,7 @@ User Request: "{user_goal}"
 Respond with ONLY the single category name in uppercase."""
         
         try:
-            response = await ollama_client.generate_async(prompt, temperature=0.0, timeout=10.0)
+            response = await ollama_client.generate_async(prompt, temperature=0.0, timeout=30.0)
             cleaned = response.strip().upper()
             for cat in CLASSIFICATION_TYPES:
                 if cat in cleaned:
@@ -149,100 +150,6 @@ Respond with ONLY the single category name in uppercase."""
         """Generate a structured execution plan for the given goal using Qwen."""
         classification = await self.classify_intent(user_goal, history=history)
         
-        goal_lower = user_goal.lower()
-        # 1. Resume + JD preset
-        if "resume" in goal_lower and ("job description" in goal_lower or "cover letter" in goal_lower or "application" in goal_lower):
-            is_pdf = bool(re.search(r'\bpdf\b', goal_lower))
-            target_path = "output/tailored_application.pdf" if is_pdf else "output/tailored_application.md"
-            return ExecutionPlan(
-                goal=user_goal,
-                classification="MULTI_STEP",
-                summary="Analyze resume against job description, extract skill gaps, and create verified application letter.",
-                steps=[
-                    PlanStep(
-                        id=1,
-                        description="Search resume and job description for skill alignment",
-                        tool="search_documents",
-                        params={"query": "AI Research Intern resume experience skills requirements", "top_k": 4},
-                        risk_level="LOW",
-                        reasoning="Retrieve applicant experience and required competencies",
-                        expected_output="Resume & JD excerpts"
-                    ),
-                    PlanStep(
-                        id=2,
-                        description=f"Synthesize cover letter & action plan to {target_path}",
-                        tool="create_file",
-                        params={"filepath": target_path, "content": ""},
-                        risk_level="HIGH",
-                        reasoning="Generate customized application document in workspace",
-                        expected_output="Verified application document on disk"
-                    )
-                ]
-            )
-        
-        # 2. LearnFlow LMS Presentation preset (also matches follow-up 'yes do it' when LearnFlow was discussed)
-        is_learnflow = "learnflow" in goal_lower
-        if not is_learnflow and history:
-            recent_hist = " ".join(h.get("content", "") for h in history[-3:]).lower()
-            if "learnflow" in recent_hist and any(w in goal_lower for w in ["yes", "do it", "do that", "summarize", "brief", "presentation", "report", "sure", "proceed"]):
-                is_learnflow = True
-
-        if is_learnflow:
-            target_path = "output/LearnFlow_LMS_Presentation_summary.md"
-            return ExecutionPlan(
-                goal=user_goal,
-                classification="ANALYSIS",
-                summary="Read LearnFlow LMS Presentation, analyze key project components and deliverables, and synthesize verified summary in workspace.",
-                steps=[
-                    PlanStep(
-                        id=1,
-                        description="Read LearnFlow LMS Presentation",
-                        tool="read_file",
-                        params={"filepath": "LearnFlow_LMS_Presentation.pptx"},
-                        risk_level="LOW",
-                        reasoning="Extract slide content and project details from presentation",
-                        expected_output="Extracted presentation text"
-                    ),
-                    PlanStep(
-                        id=2,
-                        description=f"Synthesize presentation summary to {target_path}",
-                        tool="create_file",
-                        params={"filepath": target_path, "content": ""},
-                        risk_level="HIGH",
-                        reasoning="Write verified LearnFlow LMS summary to workspace output directory",
-                        expected_output="Verified markdown summary document"
-                    )
-                ]
-            )
-
-        # 3. Project Alpha preset
-        if "project_alpha" in goal_lower or "architectural principles" in goal_lower:
-            return ExecutionPlan(
-                goal=user_goal,
-                classification="ANALYSIS",
-                summary="Read Project Alpha report and Q3 learnings to synthesize sandboxing and verification principles.",
-                steps=[
-                    PlanStep(
-                        id=1,
-                        description="Read Project Alpha Technical Report",
-                        tool="read_file",
-                        params={"filepath": "Project_Alpha_Technical_Report.md"},
-                        risk_level="LOW",
-                        reasoning="Inspect architectural decisions and benchmark findings",
-                        expected_output="Technical report content"
-                    ),
-                    PlanStep(
-                        id=2,
-                        description="Read Q3 Engineering Notes",
-                        tool="read_file",
-                        params={"filepath": "notes_q3_learnings.md"},
-                        risk_level="LOW",
-                        reasoning="Inspect lessons learned and verification recommendations",
-                        expected_output="Q3 engineering notes"
-                    )
-                ]
-            )
-
         history_summary = ""
         if history:
             recent_turns = history[-4:]
@@ -312,34 +219,62 @@ Generate the structured JSON plan:"""
         """Build deterministic default steps based on classification."""
         is_pdf = bool(re.search(r'\bpdf\b', user_goal.lower()))
         ext = ".pdf" if is_pdf else ".md"
+        matched_file = find_file_in_goal(user_goal)
+
         if classification in ["ACTION", "MULTI_STEP"]:
+            if matched_file:
+                true_stem = matched_file.split("/")[-1].split(".")[0]
+                return [
+                    PlanStep(
+                        id=1,
+                        description=f"Read {matched_file}",
+                        tool="read_file",
+                        params={"filepath": matched_file},
+                        risk_level="LOW",
+                        reasoning="Read the specific file the user mentioned",
+                        expected_output=f"Content of {matched_file}"
+                    ),
+                    PlanStep(
+                        id=2,
+                        description="Create output document",
+                        tool="create_file",
+                        params={"filepath": f"output/{true_stem}_output{ext}", "content": ""},
+                        risk_level="HIGH",
+                        reasoning="Write processed content to workspace",
+                        expected_output=f"Saved {ext} file"
+                    )
+                ]
             return [
                 PlanStep(
                     id=1,
-                    description="Search workspace for relevant background documents",
+                    description="Search workspace for relevant documents",
                     tool="search_documents",
-                    params={"query": user_goal, "top_k": 4},
+                    params={"query": user_goal, "top_k": 3},
                     risk_level="LOW",
-                    reasoning="Gather relevant personal resume, reports, or notes",
+                    reasoning="Gather relevant context from workspace",
                     expected_output="Retrieved context chunks"
                 ),
                 PlanStep(
                     id=2,
-                    description=f"Create target output document in workspace ({ext})",
+                    description="Create output document",
                     tool="create_file",
-                    params={"filepath": f"output/tailored_plan{ext}", "content": f"# Response Plan\n\nGenerated for: {user_goal}"},
+                    params={"filepath": f"output/result{ext}", "content": ""},
                     risk_level="HIGH",
-                    reasoning="Write tailored output file to workspace directory",
+                    reasoning="Write output to workspace",
                     expected_output=f"Saved {ext} file"
                 )
             ]
         else:
+            query = (
+                matched_file.split("/")[-1].split(".")[0].replace("_", " ").replace("-", " ")
+                if matched_file else user_goal
+            )
             return [
                 PlanStep(
                     id=1,
                     description="Search relevant workspace documents",
                     tool="search_documents",
-                    params={"query": user_goal, "top_k": 4},
+                    params={"query": query, "top_k": 3},
                     risk_level="LOW",
                     reasoning="Retrieve information from indexed workspace",
                     expected_output="Context and source citations"

@@ -19,6 +19,20 @@ from backend.core.chat_history import chat_history_db
 from backend.core.audit import audit_logger
 from setup_check import check_environment
 
+def is_server_online():
+    try:
+        with httpx.Client(timeout=1.0) as check_client:
+            return check_client.get("http://127.0.0.1:8000/api/health").status_code == 200
+    except Exception:
+        return False
+
+def get_test_client():
+    """Returns a fresh HTTP client targeting live server on 8000 if active, or in-process ASGITransport."""
+    if is_server_online():
+        return httpx.Client(base_url="http://127.0.0.1:8000", timeout=5.0)
+    from backend.app import app
+    return httpx.Client(transport=httpx.ASGITransport(app=app), base_url="http://test")
+
 
 class TestLocalPilotFixes(unittest.TestCase):
 
@@ -78,7 +92,7 @@ This is a test paragraph with **bold** and *italic* text.
         )
         
         # Check backend endpoint
-        with httpx.Client(base_url="http://127.0.0.1:8000", timeout=5.0) as client:
+        with get_test_client() as client:
             res = client.get("/api/audit/export?format=csv")
             self.assertEqual(res.status_code, 200)
             self.assertIn("text/csv", res.headers.get("content-type", ""))
@@ -102,7 +116,7 @@ This is a test paragraph with **bold** and *italic* text.
         self.assertEqual(messages[0]["content"], "Hello unit test")
 
         # Test API endpoints
-        with httpx.Client(base_url="http://127.0.0.1:8000", timeout=5.0) as client:
+        with get_test_client() as client:
             res = client.get("/api/chat/sessions")
             self.assertEqual(res.status_code, 200)
             data = res.json()
@@ -157,6 +171,113 @@ This is a test paragraph with **bold** and *italic* text.
         self.assertTrue(agent_orchestrator._is_followup_conversion_request("convert that to pdf"))
         self.assertTrue(agent_orchestrator._is_followup_conversion_request("now try again doing the same thing"))
         self.assertFalse(agent_orchestrator._is_followup_conversion_request("What skills does Alex have?"))
+
+    def test_rag_search_on_uploaded_files(self):
+        """Verify: place a text file in workspace → build_index → search returns results."""
+        from backend.core.rag import KnowledgeBase
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+
+            # Create a realistic document with searchable content
+            doc = tmp_path / "john_doe_resume.txt"
+            doc.write_text(
+                "John Doe - Software Engineer\n\n"
+                "Skills: Python, FastAPI, Machine Learning, TensorFlow, PostgreSQL\n\n"
+                "Experience:\n"
+                "  - Senior Engineer at Acme Corp (2020-2024): Built scalable REST APIs\n"
+                "  - ML Engineer at DataCo (2018-2020): Trained neural network models\n\n"
+                "Education: B.S. Computer Science, MIT, 2018\n\n"
+                "Projects: Built a recommendation system using collaborative filtering.",
+                encoding="utf-8"
+            )
+
+            kb = KnowledgeBase(workspace_dir=tmp_path)
+            result = kb.build_index()
+
+            # Verify index was built
+            self.assertGreater(result["total_chunks"], 0,
+                "build_index should produce chunks from the uploaded document")
+            self.assertIn("john_doe_resume.txt", result["indexed_files"],
+                "Resume file should appear in indexed_files")
+
+            # Search for skills mentioned in the document
+            search_results = kb.search("Python machine learning skills", top_k=3)
+            self.assertGreater(len(search_results), 0,
+                "search() should return results for a query matching document content")
+
+            # Verify results contain relevant content
+            all_content = " ".join(r.chunk.content.lower() for r in search_results)
+            self.assertIn("python", all_content,
+                "Search result content should contain the queried term 'python'")
+
+            # Verify scores are non-negative
+            for r in search_results:
+                self.assertGreaterEqual(r.score, 0.0, "All search scores should be >= 0")
+
+    def test_end_to_end_document_qa(self):
+        """End-to-end test: write document → index → search → verify citations in context."""
+        from backend.core.rag import KnowledgeBase
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+
+            # Simulate a user's uploaded resume
+            resume = tmp_path / "Alex_Rivera_Resume.md"
+            resume.write_text(
+                "# Alex Rivera — Product Manager\n\n"
+                "## Contact\n"
+                "Email: alex.rivera@email.com | LinkedIn: linkedin.com/in/alexrivera\n\n"
+                "## Summary\n"
+                "Experienced product manager with 8 years driving SaaS growth. "
+                "Expert in agile methodology, user research, roadmap planning, and cross-functional leadership.\n\n"
+                "## Experience\n"
+                "**Senior Product Manager — TechFlow Inc** (2020–2024)\n"
+                "- Led 0→1 launch of analytics dashboard used by 50,000+ users\n"
+                "- Increased feature adoption by 35% through A/B testing and data analysis\n\n"
+                "**Product Manager — StartupXYZ** (2016–2020)\n"
+                "- Managed backlog of 200+ user stories for mobile app (iOS & Android)\n\n"
+                "## Skills\n"
+                "Product roadmap, JIRA, Confluence, SQL, user interviews, Figma, OKRs\n\n"
+                "## Education\n"
+                "MBA, Stanford Graduate School of Business, 2016\n"
+                "B.S. Business Administration, UC Berkeley, 2014\n",
+                encoding="utf-8"
+            )
+
+            kb = KnowledgeBase(workspace_dir=tmp_path)
+            index_result = kb.build_index()
+            self.assertGreater(index_result["total_chunks"], 0, "Index should have chunks")
+
+            # Test Q&A queries
+            queries_and_keywords = [
+                ("What is Alex Rivera's work experience?", ["techflow", "startup", "product manager"]),
+                ("What skills does Alex have?", ["sql", "jira", "figma", "roadmap"]),
+                ("What is Alex's educational background?", ["stanford", "berkeley", "mba"]),
+            ]
+
+            for query, expected_keywords in queries_and_keywords:
+                results = kb.search(query, top_k=3)
+                self.assertGreater(len(results), 0,
+                    f"Query '{query}' should return at least 1 result")
+
+                # Format context as the production code would
+                formatted = kb.format_retrieved_context(results)
+                self.assertGreater(len(formatted["sources"]), 0,
+                    f"Query '{query}' should include source citations")
+
+                # Verify the source is Alex's resume
+                source_paths = [s["relative_path"] for s in formatted["sources"]]
+                self.assertTrue(
+                    any("Alex_Rivera_Resume" in sp for sp in source_paths),
+                    f"Query '{query}' should cite Alex's resume, got sources: {source_paths}"
+                )
+
+                # Verify content block contains at least one expected keyword
+                context_lower = formatted["context_text"].lower()
+                matched = [kw for kw in expected_keywords if kw in context_lower]
+                self.assertGreater(len(matched), 0,
+                    f"Context for '{query}' should contain one of {expected_keywords}, got: {context_lower[:200]}")
 
 
 if __name__ == "__main__":

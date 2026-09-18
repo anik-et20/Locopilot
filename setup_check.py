@@ -30,8 +30,15 @@ def check_environment(auto_exit: bool = False) -> bool:
     print("=" * 65)
     print("  [*] Performing LocalPilot Pre-Flight Health Check...")
     print("=" * 65)
+
+    # 1. Check Python Version (3.10+)
+    if sys.version_info < (3, 10):
+        print(f"\n  [!] Unsupported Python version: {sys.version.split()[0]}. Python 3.10+ is required.")
+        issues.append("Python version is below 3.10.")
+    else:
+        print(f"  [OK] Python version: {sys.version.split()[0]} (>= 3.10).")
     
-    # 1. Check Python Dependencies
+    # 2. Check Python Dependencies
     missing_deps = []
     for mod_name, desc, install_cmd in REQUIRED_MODULES:
         try:

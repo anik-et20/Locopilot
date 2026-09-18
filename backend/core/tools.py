@@ -11,6 +11,47 @@ from pydantic import BaseModel
 from .config import settings
 from .rag import knowledge_base
 
+
+_GENERIC_MATCH_WORDS = {
+    'report', 'file', 'document', 'presentation', 'summary',
+    'data', 'system', 'analysis', 'diagram', 'notes', 'description'
+}
+
+
+def find_file_in_goal(goal: str) -> Optional[str]:
+    """Return the workspace file whose specific name best matches the goal."""
+    goal_lower = goal.lower()
+    best_match: Optional[str] = None
+    best_score = 0
+    best_extension_match = False
+
+    try:
+        for p in settings.workspace_dir.rglob("*"):
+            if not p.is_file() or any(part.startswith(".") for part in p.parts):
+                continue
+            rel = p.relative_to(settings.workspace_dir).as_posix()
+            if rel.startswith("output/") or rel.startswith("test_output/"):
+                continue
+
+            true_stem = p.name.split(".")[0]
+            stem_words = true_stem.lower().replace("_", " ").replace("-", " ").split()
+            hits = [
+                word for word in stem_words
+                if len(word) > 3
+                and word not in _GENERIC_MATCH_WORDS
+                and word in goal_lower
+            ]
+            score = len(hits)
+            extension_match = p.suffix.lower().lstrip(".") in goal_lower
+            if score > best_score or (score == best_score and extension_match and not best_extension_match):
+                best_score = score
+                best_match = rel
+                best_extension_match = extension_match
+    except Exception:
+        pass
+
+    return best_match if best_score > 0 else None
+
 class ToolDefinition(BaseModel):
     name: str
     description: str
@@ -101,11 +142,23 @@ def search_documents(query: str, top_k: int = 4) -> Dict[str, Any]:
     """Search local workspace documents using the RAG semantic knowledge engine."""
     results = knowledge_base.search(query=query, top_k=top_k)
     formatted = knowledge_base.format_retrieved_context(results)
+    # Build per-result detail list for richer LLM context
+    result_details = []
+    for r in results:
+        result_details.append({
+            "filename": r.chunk.filename,
+            "relative_path": r.chunk.relative_path,
+            "score": r.score,
+            "snippet": r.chunk.content[:400].strip()
+        })
     return {
         "query": query,
         "num_results": len(results),
         "sources": formatted["sources"],
-        "context_block": formatted["formatted_block"]
+        "results": result_details,
+        "context_block": formatted["formatted_block"],
+        "indexed_files": knowledge_base._indexed_files,
+        "total_indexed": len(knowledge_base._indexed_files)
     }
 
 def create_file(filepath: str, content: str) -> Dict[str, Any]:

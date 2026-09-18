@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let allAuditEntries = [];
   let allSessions = [];
   let watchdogTimer = null;
-  const WATCHDOG_TIMEOUT_MS = 120000; // 120 seconds safety timeout (ample headroom for local CPU inference)
+  const WATCHDOG_TIMEOUT_MS = 300000; // 300s for local CPU inference
 
   function generateSessionId() {
     return 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
@@ -453,7 +453,7 @@ document.addEventListener('DOMContentLoaded', () => {
     resetWatchdog(abortController);
 
     try {
-      const response = await fetch('/api/chat/stream', {
+      let response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -464,7 +464,24 @@ document.addEventListener('DOMContentLoaded', () => {
         signal: abortController.signal
       });
 
+      // If /api/chat/stream returned 404 (e.g. backend process was started before chat endpoints were added), fallback to /api/agent/run
+      if (response.status === 404) {
+        console.warn('/api/chat/stream returned 404. Falling back to /api/agent/run...');
+        response = await fetch('/api/agent/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            goal: goalText,
+            session_id: currentSessionId
+          }),
+          signal: abortController.signal
+        });
+      }
+
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Server returned HTTP 404. The backend server needs to be restarted so the latest API endpoints are loaded. Please restart with: python run.py');
+        }
         throw new Error(`Server returned HTTP ${response.status}`);
       }
 
@@ -491,6 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rawJson) {
               try {
                 const eventData = JSON.parse(rawJson);
+                resetWatchdog(abortController); // Keep the connection alive for every SSE event
                 handlePipelineEvent(eventData, (text) => {
                   currentAssistantMessage += text;
                 });

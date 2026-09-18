@@ -136,7 +136,7 @@ class ChatManager:
         agent_phrases = [
             "create file", "create a file", "generate file", "make a file", "create a pdf", "make a pdf",
             "make pdf", "generate pdf", "create pdf", "save to", "write to", "output/",
-            "create folder", "tailored application", "gap analysis", "action plan",
+            "create folder", "tailored application", "tailored_application", "gap analysis", "action plan",
             "modify file", "delete file", "run agent",
             # Follow-up and conversion phrasing
             "pdf format", "in a pdf", "in pdf", "as a pdf", "as pdf", "to a pdf", "to pdf",
@@ -144,10 +144,22 @@ class ChatManager:
             "make it a pdf", "make it pdf", "convert to pdf", "convert it to pdf", "convert that to pdf",
             "export as pdf", "export to pdf", "save as pdf", "turn it into a pdf", "turn into pdf",
             "try again", "same thing", "retry", "do the same", "now try again", "do it again",
+            "now try again doing the same thing",
             # Short confirmations for multi-step execution
-            "yes do it", "do that", "do it", "summarize it", "summarize that", "make it", "create it", "go ahead"
+            "yes do it", "do that", "do it", "summarize it", "summarize that", "make it", "create it", "go ahead",
+            # Document/file reference queries — route to AGENT so search_documents tool can be used
+            "my resume", "my cv", "the document", "the file", "that pdf", "that file", "that document",
+            "the pdf", "from the document", "from my resume", "from my cv", "from the file",
+            "uploaded", "i uploaded", "what's in", "what is in", "tell me about my", "analyze my",
+            "summarize my", "read my", "check my", "look at my", "review my", "based on my",
+            "based on the document", "based on the file", "based on the pdf",
+            "search my", "find in", "look in", "in my documents", "in the document",
         ]
         if any(phrase in m_lower for phrase in agent_phrases):
+            return "AGENT"
+
+        # Explicit file creation, generation, or write action
+        if any(w in m_lower for w in ["create", "generate", "write", "make", "save", "export", "convert"]) and any(ext in m_lower for ext in [".md", ".pdf", ".txt", ".json", "file", "folder", "application", "document"]):
             return "AGENT"
 
         # 2. Check standalone 'pdf' word using regex
@@ -201,7 +213,6 @@ Reply strictly with JSON: {{"route": "AGENT"}} or {{"route": "CHAT"}}
                 "create", "write", "save", "make", "pdf", "convert", "export", "output/",
                 "yes do it", "do that", "proceed", "do it again", "try again", "retry"
             ]
-            return "AGENT" if any(w in m_lower for w in fallback_agent_words) else "CHAT"
             return "AGENT" if any(w in m_lower for w in fallback_agent_words) else "CHAT"
 
     def _format_chat_prompt(self, message: str, history: List[Dict[str, str]]) -> str:

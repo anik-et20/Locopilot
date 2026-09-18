@@ -256,6 +256,7 @@ async def get_audit_logs(session_id: Optional[str] = None, limit: int = 100):
     }
 
 @app.get("/api/audit/export")
+@app.post("/api/audit/export")
 async def export_audit_logs(format: str = Query("csv", description="Format: csv or text")):
     """Export the append-only audit trail as a formatted CSV or plain text document."""
     entries = audit_logger.get_entries(limit=1000)
@@ -263,7 +264,7 @@ async def export_audit_logs(format: str = Query("csv", description="Format: csv 
     if format.lower() == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Timestamp", "Session ID", "Event Type", "Goal / Action", "Risk Level", "Outcome / Details"])
+        writer.writerow(["Timestamp", "Session ID", "Event Type", "Goal/Action", "Risk Level", "Outcome/Details"])
         
         for e in entries:
             timestamp = e.get("timestamp", "")

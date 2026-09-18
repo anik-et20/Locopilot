@@ -16,7 +16,7 @@ from .config import settings
 from .llm import ollama_client
 from .rag import knowledge_base
 from .planner import planner, ExecutionPlan, PlanStep
-from .tools import execute_tool, TOOL_REGISTRY
+from .tools import execute_tool, TOOL_REGISTRY, find_file_in_goal
 from .permission import permission_gateway, PermissionResponse
 from .verifier import action_verifier
 from .audit import audit_logger
@@ -37,18 +37,13 @@ class AgentOrchestrator:
         self._session_last_referenced: Dict[str, str] = {}
 
     def get_last_output_file(self, session_id: str) -> Optional[str]:
-        """Get the most recently created output file for a session."""
+        """Get the most recently created output file for a session (session-scoped only)."""
         if session_id in self._session_last_output:
             return self._session_last_output[session_id]
         if session_id in self._active_sessions and "last_output_file" in self._active_sessions[session_id]:
             return self._active_sessions[session_id]["last_output_file"]
-        
-        # Workspace fallback: look in settings.workspace_dir / "output"
-        output_dir = settings.workspace_dir / "output"
-        if output_dir.exists() and output_dir.is_dir():
-            md_files = sorted(output_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if md_files:
-                return f"output/{md_files[0].name}"
+        # Do NOT fall back to workspace scan — that causes stale artifacts from other
+        # sessions to contaminate the current one (e.g. tailored_application.md always winning).
         return None
 
     def set_last_output_file(self, session_id: str, filepath: str):
@@ -94,6 +89,26 @@ class AgentOrchestrator:
     def _is_followup_conversion_request(self, goal: str) -> bool:
         """Check if goal is a follow-up asking to convert/reformat previous output to PDF."""
         g = goal.lower().strip()
+
+        # Guard: if goal explicitly references a new file or upload, it's NOT a follow-up
+        new_file_signals = [
+            "upload", "uploaded", "new file", "this file", "this document", "this pdf",
+            "i sent", "i gave", "my resume", "my cv", "my document", "analyze", "review",
+            "what's in", "what is in", "based on", "summarize my", "tell me about my",
+            "read my", "check my", "look at my", "from my", "from the file",
+        ]
+        # Also bail out if any workspace filename appears in the goal
+        workspace_files = list(settings.workspace_dir.rglob("*"))
+        for p in workspace_files:
+            if p.is_file() and not any(part.startswith(".") for part in p.parts):
+                rel = p.relative_to(settings.workspace_dir).as_posix()
+                if not rel.startswith("output/") and not rel.startswith("test_output/"):
+                    if p.name.lower() in g or p.stem.lower() in g:
+                        return False  # Goal is about a specific uploaded file, not a conversion follow-up
+
+        if any(sig in g for sig in new_file_signals):
+            return False
+
         followup_patterns = [
             "pdf format", "as a pdf", "in a pdf", "in pdf", "as pdf", "to a pdf", "to pdf",
             "convert that", "convert it", "convert to pdf", "turn it into a pdf", "turn into pdf",
@@ -106,6 +121,7 @@ class AgentOrchestrator:
         if re.search(r'\bpdf\b', g) and any(w in g for w in ["provide", "give", "response", "format", "convert", "export", "make", "as", "in", "it", "that", "same", "again"]):
             return True
         return False
+
 
     def _is_short_followup_confirmation(self, goal: str) -> bool:
         """Check if goal is a short follow-up or confirmation."""
@@ -140,6 +156,16 @@ class AgentOrchestrator:
                         self.set_last_referenced_file(sess_id, rel)
 
         try:
+            health = ollama_client.check_health()
+            if not health.get("model_ready"):
+                terminal_event_yielded = True
+                yield {
+                    "event": "ERROR",
+                    "session_id": sess_id,
+                    "message": f"Ollama model '{settings.ollama_model}' is not ready. Start Ollama with: ollama run {settings.ollama_model}"
+                }
+                return
+
             # 1. Start Session & Audit
             audit_logger.log_event(
                 event_type="SESSION_STARTED",
@@ -277,7 +303,14 @@ class AgentOrchestrator:
                 }
 
                 # 3. Stage: Search Local Knowledge (RAG)
-                rag_results = knowledge_base.search(user_goal, top_k=4)
+                matched_file = find_file_in_goal(user_goal)
+                if matched_file:
+                    self.set_last_referenced_file(sess_id, matched_file)
+                    rag_query = Path(matched_file).name.split(".")[0].replace("_", " ").replace("-", " ")
+                else:
+                    rag_query = user_goal
+
+                rag_results = knowledge_base.search(rag_query, top_k=4)
                 formatted_rag = knowledge_base.format_retrieved_context(rag_results)
                 
                 audit_logger.log_event(
@@ -516,31 +549,16 @@ class AgentOrchestrator:
                 }
 
     async def _synthesize_document_content(self, goal: str, context: Dict[str, Any]) -> str:
-        """Synthesize rich file content based on user goal and retrieved knowledge."""
-        goal_lower = goal.lower()
-
-        # Check if step outputs contain read content
-        step_content = ""
+        """Synthesize document content from actual file output or local context."""
         for s_out in context.get("step_outputs", {}).values():
-            if isinstance(s_out, dict) and s_out.get("content"):
-                step_content = s_out["content"]
-                break
+            if isinstance(s_out, dict) and s_out.get("content") and len(s_out["content"].strip()) > 50:
+                return s_out["content"].strip()
 
-        # Check for resume & job description application synthesis scenario
-        if "resume" in goal_lower and ("job description" in goal_lower or "application" in goal_lower or "cover letter" in goal_lower):
-            return self._build_resume_tailored_application(context)
-
-        # Check for LearnFlow presentation synthesis
-        if "learnflow" in goal_lower or "presentation" in goal_lower or "lms" in goal_lower or ("presentation" in step_content.lower() and "learnflow" in step_content.lower()):
-            return self._build_learnflow_summary(step_content or context.get('rag_context', ''))
-
-        # General LLM-based synthesis with concise context
         rag_text = context.get('rag_context', '')
         concise_rag = rag_text[:800] if len(rag_text) > 800 else rag_text
-        has_rich_context = len(concise_rag.strip()) > 50 or len(step_content.strip()) > 50
+        has_rich_context = len(concise_rag.strip()) > 50
 
-        # For low-context / speculative calls, use a fast 12s timeout to prevent hanging
-        synth_timeout = 120.0 if has_rich_context else 12.0
+        synth_timeout = min(90.0, 120.0 if has_rich_context else 12.0)
 
         prompt = f"""You are LocalGPT. Write a comprehensive markdown document for: {goal}
 Context:
@@ -553,9 +571,8 @@ Provide clean markdown with sections, bullet points, and actionable takeaways.""
             if content and len(content.strip()) > 100:
                 return content.strip()
         except Exception as e:
-            logger.warning(f"LLM document synthesis timeout/error ({e}), using structured document generator.")
+            logger.warning(f"LLM document synthesis timeout/error ({e}), using structured fallback.")
 
-        # Structured fallback document generator
         return self._build_structured_document(goal, context)
 
     def _build_learnflow_summary(self, content: str) -> str:
@@ -698,8 +715,7 @@ The following local files were reviewed during this operation:
 
     async def _synthesize_final_report(self, goal: str, plan: ExecutionPlan, context: Dict[str, Any]) -> str:
         """Generate final user summary with source provenance."""
-        goal_lower = goal.lower()
-        
+
         # Check for PDF creation / conversion workflow
         pdf_step = next((s for s in plan.steps if s.tool == "create_file" and s.params.get("filepath", "").endswith(".pdf")), None)
         if pdf_step:
@@ -710,46 +726,6 @@ The following local files were reviewed during this operation:
                 f"2. **Target File:** `{pdf_path}`\n"
                 f"3. **Verification Status:** Passed post-action disk verification (valid PDF header, verified non-empty binary payload).\n"
                 f"4. **Accessibility:** The file is immediately available in your local workspace."
-            )
-
-        # Check for LearnFlow LMS Presentation workflow
-        if "learnflow" in goal_lower or "presentation" in goal_lower or "lms" in goal_lower:
-            return (
-                "### ✅ LearnFlow LMS Presentation Summary Generated\n\n"
-                "1. **Discovered in Presentation (`LearnFlow_LMS_Presentation.pptx`):**\n"
-                "   - **Project:** Learning Management System (PS-II at VentureX India by Aniket Vaishya, BMU).\n"
-                "   - **Key Components:** Super Admin Portal, AI Tutor with contextual RAG integration, and Student Dashboard.\n"
-                "   - **Outcomes:** Multi-tenant LMS architecture reducing evaluation overhead with sub-100ms vector search.\n"
-                "2. **Actions Executed & Verified:**\n"
-                "   - Read and parsed slides from `LearnFlow_LMS_Presentation.pptx`.\n"
-                "   - Synthesized verified executive summary in workspace (`output/LearnFlow_LMS_Presentation_summary.md`).\n"
-                "3. **Local Sources Consulted:** `LearnFlow_LMS_Presentation.pptx`."
-            )
-
-        # Check for resume & job description workflow
-        if "resume" in goal_lower and ("job description" in goal_lower or "application" in goal_lower):
-            return (
-                "### ✅ Resume Gap Analysis & Application Generated\n\n"
-                "1. **Discovered in Local Documents:**\n"
-                "   - **`Alex_Rivera_Resume.md`:** 3+ years experience in local LLM inference, Stanford CS (GPA: 3.92), VeriLocal Systems RAG engineer, PyTorch/Rust proficiency.\n"
-                "   - **`Job_Description_AI_Research_Intern.md`:** AnthroMetrics AI requirements in verifiable agents, quantized inference, and deterministic tool safety.\n"
-                "2. **Actions Executed & Verified:**\n"
-                "   - Analyzed 4 core competency areas (100% match on RAG, agent safety, and quantized inference).\n"
-                "   - Requested human permission to create `output/tailored_application.md`.\n"
-                "   - Executed `create_file` and verified file integrity on local disk (`PASS`).\n"
-                "3. **Local Sources Consulted:** `Alex_Rivera_Resume.md`, `Job_Description_AI_Research_Intern.md`."
-            )
-        elif "project_alpha" in goal_lower or "architectural principles" in goal_lower:
-            return (
-                "### ✅ Architectural Principles Synthesized\n\n"
-                "1. **Discovered in Local Documents:**\n"
-                "   - **`Project_Alpha_Technical_Report.md`:** Zero-dependency hybrid vector search, streaming token generation, sub-80ms retrieval.\n"
-                "   - **`notes_q3_learnings.md`:** Post-action verification guarantees (file existence, non-empty bytes, readable encoding) and strict 5-tool sandboxing.\n"
-                "2. **Key Architectural Principles:**\n"
-                "   - Deterministic tool whitelisting prevents arbitrary code execution.\n"
-                "   - Human permission checkpoints ensure zero unauthorized disk mutations.\n"
-                "   - Automated post-action verification independently confirms system state.\n"
-                "3. **Local Sources Consulted:** `Project_Alpha_Technical_Report.md`, `notes_q3_learnings.md`."
             )
 
         rag_text = context.get('rag_context', '')

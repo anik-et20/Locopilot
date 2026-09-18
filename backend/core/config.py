@@ -26,13 +26,13 @@ class Settings(BaseModel):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:8b"
     llm_temperature: float = 0.2
-    llm_timeout: float = 180.0
+    llm_timeout: float = 300.0
     
     # RAG / Embedding Configuration
     embedding_model_name: str = "all-MiniLM-L6-v2"
-    chunk_size: int = 450
-    chunk_overlap: int = 75
-    top_k_retrieval: int = 4
+    chunk_size: int = 300
+    chunk_overlap: int = 50
+    top_k_retrieval: int = 3
     
     # Tool Safety & Risk Definitions
     allowed_tools: list[str] = [

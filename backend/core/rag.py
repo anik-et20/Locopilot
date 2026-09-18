@@ -39,10 +39,15 @@ class KnowledgeBase:
     def load_document(self, file_path: Path) -> str:
         """Load text from MD, TXT, PDF, PPTX, DOCX, JSON, PY, or CSV files."""
         ext = file_path.suffix.lower()
+        file_size = file_path.stat().st_size if file_path.exists() else 0
+        logger.info(f"Loading document: {file_path.name} ({file_size} bytes, type={ext})")
+
         if ext in [".md", ".txt", ".markdown", ".json", ".py", ".csv"]:
             try:
                 with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                    return f.read()
+                    content = f.read()
+                logger.info(f"  → Text extracted: {len(content)} chars from {file_path.name}")
+                return content
             except Exception as e:
                 logger.error(f"Error reading text file {file_path}: {e}")
                 return ""
@@ -55,7 +60,11 @@ class KnowledgeBase:
                     page_text = page.extract_text() or ""
                     if page_text.strip():
                         text_pages.append(f"--- Page {idx+1} ---\n{page_text}")
-                return "\n\n".join(text_pages)
+                content = "\n\n".join(text_pages)
+                logger.info(f"  → PDF extracted: {len(content)} chars from {len(reader.pages)} pages in {file_path.name}")
+                if not content.strip():
+                    logger.warning(f"  ⚠ PDF {file_path.name} produced empty text — may be scanned/image-based")
+                return content
             except Exception as e:
                 logger.error(f"Error reading PDF file {file_path}: {e}")
                 return ""
@@ -74,7 +83,9 @@ class KnowledgeBase:
                                     texts.append(t)
                     if texts:
                         slide_texts.append(f"--- Slide {idx+1} ---\n" + "\n".join(texts))
-                return "\n\n".join(slide_texts)
+                content = "\n\n".join(slide_texts)
+                logger.info(f"  → PPTX extracted: {len(content)} chars from {len(prs.slides)} slides in {file_path.name}")
+                return content
             except Exception as e:
                 logger.error(f"Error reading PPTX file {file_path}: {e}")
                 return ""
@@ -88,10 +99,13 @@ class KnowledgeBase:
                         row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
                         if row_text:
                             paragraphs.append(row_text)
-                return "\n\n".join(paragraphs)
+                content = "\n\n".join(paragraphs)
+                logger.info(f"  → DOCX extracted: {len(content)} chars from {file_path.name}")
+                return content
             except Exception as e:
                 logger.error(f"Error reading DOCX file {file_path}: {e}")
                 return ""
+        logger.warning(f"Unsupported file extension '{ext}' for {file_path.name}")
         return ""
 
     def chunk_text(self, text: str, filename: str, relative_path: str) -> List[DocumentChunk]:
@@ -159,8 +173,10 @@ class KnowledgeBase:
         supported_exts = {".md", ".txt", ".pdf", ".markdown", ".json", ".py", ".csv", ".pptx", ".docx"}
 
         if not self.workspace_dir.exists():
+            logger.warning(f"Workspace directory not found: {self.workspace_dir}")
             return {"status": "workspace_not_found", "total_chunks": 0, "indexed_files": []}
 
+        logger.info(f"build_index: scanning workspace at {self.workspace_dir}")
         for root, _, files in os.walk(self.workspace_dir):
             for file in files:
                 file_path = Path(root) / file
@@ -174,23 +190,28 @@ class KnowledgeBase:
                         doc_chunks = self.chunk_text(content, file, rel_path)
                         self.chunks.extend(doc_chunks)
                         self._indexed_files.append(rel_path)
+                        logger.info(f"  ✓ Indexed {len(doc_chunks)} chunks from {rel_path}")
+                    else:
+                        logger.warning(f"  ✗ No content extracted from {rel_path} — skipping")
 
         if self.chunks:
             texts = [c.content for c in self.chunks]
             try:
                 from sklearn.feature_extraction.text import TfidfVectorizer
                 self._tfidf_vectorizer = TfidfVectorizer(
-                    ngram_range=(1, 2),
+                    ngram_range=(1, 1),
                     stop_words='english',
-                    sublinear_tf=True
+                    sublinear_tf=True,
+                    max_features=8000
                 )
                 self._tfidf_matrix = self._tfidf_vectorizer.fit_transform(texts)
+                logger.info(f"TF-IDF matrix built: {self._tfidf_matrix.shape}")
             except Exception as e:
                 logger.error(f"TF-IDF indexing error: {e}")
                 self._tfidf_vectorizer = None
                 self._tfidf_matrix = None
 
-        logger.info(f"Indexed {len(self.chunks)} chunks across {len(self._indexed_files)} workspace files.")
+        logger.info(f"build_index complete: {len(self.chunks)} chunks across {len(self._indexed_files)} files.")
         return {
             "status": "ready",
             "total_chunks": len(self.chunks),
@@ -200,10 +221,14 @@ class KnowledgeBase:
     def search(self, query: str, top_k: Optional[int] = None) -> List[SearchResult]:
         """Retrieve top-k relevant document chunks with similarity scores."""
         k = top_k or settings.top_k_retrieval
+        logger.info(f"search: query='{query[:80]}' top_k={k} chunks_indexed={len(self.chunks)}")
+
         if not self.chunks:
+            logger.info("search: no chunks in index — triggering build_index()")
             self.build_index()
 
         if not self.chunks:
+            logger.warning("search: still no chunks after build_index() — workspace may be empty")
             return []
 
         results: List[SearchResult] = []
@@ -217,30 +242,47 @@ class KnowledgeBase:
                 top_indices = scores.argsort()[::-1][:k]
                 for idx in top_indices:
                     score_val = float(scores[idx])
-                    if score_val > 0.001:
+                    # Use a very low threshold so even weakly-matching docs are returned
+                    if score_val > 0.0001:
                         results.append(SearchResult(
                             chunk=self.chunks[idx],
                             score=round(score_val, 4)
                         ))
-                if results:
-                    return results
+                logger.info(f"search: TF-IDF returned {len(results)} results (threshold=0.0001)")
             except Exception as e:
                 logger.error(f"TF-IDF search error: {e}")
 
-        # Lexical Token Overlap fallback
-        query_terms = set(re.findall(r'\w+', query.lower()))
-        term_scores = []
-        for idx, chunk in enumerate(self.chunks):
-            chunk_terms = set(re.findall(r'\w+', chunk.content.lower()))
-            overlap = len(query_terms.intersection(chunk_terms))
-            if overlap > 0:
-                score = overlap / (math.sqrt(len(query_terms)) * math.sqrt(len(chunk_terms) + 1))
-                term_scores.append((score, idx))
+        # Always run lexical fallback — supplement TF-IDF results or provide them when TF-IDF fails
+        if len(results) < k:
+            logger.info(f"search: running lexical fallback to supplement ({len(results)}/{k} results so far)")
+            already_ids = {r.chunk.chunk_id for r in results}
+            query_terms = set(re.findall(r'\w+', query.lower()))
+            # Remove extremely common stop words from query terms for better matching
+            stopwords = {"the", "a", "an", "is", "in", "on", "at", "to", "of", "and", "or", "for", "with", "my", "i", "me", "you"}
+            effective_terms = query_terms - stopwords if len(query_terms - stopwords) > 0 else query_terms
+            term_scores = []
+            for idx, chunk in enumerate(self.chunks):
+                if chunk.chunk_id in already_ids:
+                    continue
+                chunk_terms = set(re.findall(r'\w+', chunk.content.lower()))
+                overlap = len(effective_terms.intersection(chunk_terms))
+                if overlap > 0:
+                    score = overlap / (math.sqrt(len(effective_terms)) * math.sqrt(len(chunk_terms) + 1))
+                    term_scores.append((score, idx))
 
-        term_scores.sort(key=lambda x: x[0], reverse=True)
-        for score, idx in term_scores[:k]:
-            results.append(SearchResult(chunk=self.chunks[idx], score=round(float(score), 4)))
+            term_scores.sort(key=lambda x: x[0], reverse=True)
+            needed = k - len(results)
+            for score, idx in term_scores[:needed]:
+                results.append(SearchResult(chunk=self.chunks[idx], score=round(float(score), 4)))
+            logger.info(f"search: lexical fallback added {len(term_scores[:needed])} results → total={len(results)}")
 
+        # Last resort: return top-K chunks by position if nothing matched
+        if not results and self.chunks:
+            logger.warning(f"search: zero matches — returning first {k} chunks as last resort")
+            for chunk in self.chunks[:k]:
+                results.append(SearchResult(chunk=chunk, score=0.0001))
+
+        logger.info(f"search: returning {len(results)} total results for query='{query[:60]}'")
         return results
 
     def format_retrieved_context(self, results: List[SearchResult]) -> Dict[str, Any]:

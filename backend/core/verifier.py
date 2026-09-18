@@ -91,6 +91,23 @@ class ActionVerifier:
                     passed=valid_pdf_magic and size > 200,
                     details=f"Valid binary PDF format confirmed (%PDF header present, {size} bytes)." if valid_pdf_magic else "Invalid PDF format: Missing %PDF binary header."
                 ))
+                
+                # Check readability & page count
+                try:
+                    import pypdf
+                    reader = pypdf.PdfReader(str(target))
+                    page_count = len(reader.pages)
+                    checks.append(VerificationCheck(
+                        name="pdf_content_readable",
+                        passed=page_count > 0,
+                        details=f"PDF content readable and valid ({page_count} page(s))." if page_count > 0 else "PDF contains 0 pages."
+                    ))
+                except Exception as pdf_err:
+                    checks.append(VerificationCheck(
+                        name="pdf_content_readable",
+                        passed=False,
+                        details=f"Failed to read PDF document: {pdf_err}"
+                    ))
             else:
                 with open(target, "r", encoding="utf-8", errors="replace") as f:
                     actual_content = f.read()

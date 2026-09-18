@@ -228,6 +228,15 @@ def _format_inline_markdown(text: str) -> str:
     # Escape XML specials first
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
+    # Protect code spans so underscores in identifiers are not parsed as italics.
+    code_spans = []
+
+    def protect_code(match):
+        code_spans.append(match.group(1))
+        return f"\x00CODE{len(code_spans) - 1}\x00"
+
+    text = re.sub(r'`([^`]+)`', protect_code, text)
+
     # Bold: **text** or __text__
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'__(.*?)__', r'<b>\1</b>', text)
@@ -236,11 +245,12 @@ def _format_inline_markdown(text: str) -> str:
     text = re.sub(r'(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
     text = re.sub(r'(?<!_)_(?!_)(.*?)(?<!_)_(?!_)', r'<i>\1</i>', text)
 
-    # Inline code: `code`
-    text = re.sub(r'`([^`]+)`', r'<font name="Courier" color="#334155" size="8.5">\1</font>', text)
-
     # Markdown links: [text](url) -> text
     text = re.sub(r'\[(.*?)\]\((.*?)\)', r'<font color="#4f46e5"><u>\1</u></font>', text)
+
+    for index, code in enumerate(code_spans):
+        replacement = f'<font name="Courier" color="#334155" size="8.5">{code}</font>'
+        text = text.replace(f"\x00CODE{index}\x00", replacement)
 
     return text
 
