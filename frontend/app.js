@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const goalForm = document.getElementById('goalForm');
   const goalInput = document.getElementById('goalInput');
   const submitGoalBtn = document.getElementById('submitGoalBtn');
+  const attachedFilesContainer = document.getElementById('attachedFilesContainer');
   const workspaceFileList = document.getElementById('workspaceFileList');
   const refreshFilesBtn = document.getElementById('refreshFilesBtn');
   const uploadFilesBtn = document.getElementById('uploadFilesBtn');
@@ -51,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let allAuditEntries = [];
   let allSessions = [];
   let watchdogTimer = null;
+  let attachedFiles = [];
   const WATCHDOG_TIMEOUT_MS = 300000; // 300s for local CPU inference
 
   function generateSessionId() {
@@ -260,16 +262,71 @@ document.addEventListener('DOMContentLoaded', () => {
       const icon = isDir ? '📁' : (item.extension === '.pdf' ? '📕' : '📄');
       const sizeStr = item.size_bytes !== null ? `${(item.size_bytes / 1024).toFixed(1)} KB` : '';
 
+      let deleteHtml = '';
+      if (!isDir) {
+        deleteHtml = `
+          <button class="file-delete-btn" title="Delete File" data-filepath="${escapeHtml(item.relative_path)}" data-filename="${escapeHtml(item.name)}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+          </button>
+        `;
+      }
+
       el.innerHTML = `
         <div class="file-info">
           <span>${icon}</span>
           <span class="file-name" title="${item.name}">${item.name}</span>
         </div>
-        <span class="file-size">${sizeStr}</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="file-size">${sizeStr}</span>
+          ${deleteHtml}
+        </div>
       `;
 
       if (!isDir) {
-        el.addEventListener('click', () => openFileModal(item.relative_path, item.name));
+        el.draggable = true;
+        el.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('application/x-localgpt-file', item.relative_path);
+          e.dataTransfer.setData('text/plain', item.name);
+          el.classList.add('dragging');
+        });
+        el.addEventListener('dragend', () => {
+          el.classList.remove('dragging');
+        });
+
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('.file-delete-btn')) return;
+          openFileModal(item.relative_path, item.name);
+        });
+        
+        const delBtn = el.querySelector('.file-delete-btn');
+        if (delBtn) {
+          delBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm(`Delete ${item.name}?`)) {
+              try {
+                const res = await fetch(`/api/workspace/files?filepath=${encodeURIComponent(item.relative_path)}`, { method: 'DELETE' });
+                if (res.ok) {
+                  const data = await res.json();
+                  appendEventCard('understand', 'File Deleted & Reindexed', `
+                    <div>Successfully deleted <strong>${escapeHtml(item.name)}</strong> from workspace.</div>
+                    <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Workspace knowledge index rebuilt automatically (Chunks: ${data.indexed_chunks}).</div>
+                  `);
+                  fetchWorkspaceFiles();
+                } else {
+                  const err = await res.json();
+                  alert('Delete failed: ' + (err.detail || 'Unknown error'));
+                }
+              } catch (err) {
+                alert('Network error while deleting: ' + err.message);
+              }
+            }
+          });
+        }
       }
 
       workspaceFileList.appendChild(el);
@@ -282,6 +339,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
       formData.append('files', files[i]);
+    }
+    if (currentSessionId) {
+      formData.append('session_id', currentSessionId);
     }
 
     uploadFilesBtn.disabled = true;
@@ -428,8 +488,12 @@ document.addEventListener('DOMContentLoaded', () => {
   async function startAgentRun(goalText) {
     if (!goalText.trim()) return;
 
-    // Immediately clear input box
+    const requestAttachedFiles = [...attachedFiles];
+    
+    // Clear input box and attached files
     goalInput.value = '';
+    attachedFiles = [];
+    if (typeof renderAttachedFiles === 'function') renderAttachedFiles();
 
     // Remove welcome hero if present
     const hero = document.getElementById('welcomeHero');
@@ -459,12 +523,13 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           message: goalText,
           history: chatHistory,
-          session_id: currentSessionId
+          session_id: currentSessionId,
+          attached_files: requestAttachedFiles
         }),
         signal: abortController.signal
       });
 
-      // If /api/chat/stream returned 404 (e.g. backend process was started before chat endpoints were added), fallback to /api/agent/run
+      // If /api/chat/stream returned 404, fallback to /api/agent/run
       if (response.status === 404) {
         console.warn('/api/chat/stream returned 404. Falling back to /api/agent/run...');
         response = await fetch('/api/agent/run', {
@@ -472,7 +537,8 @@ document.addEventListener('DOMContentLoaded', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             goal: goalText,
-            session_id: currentSessionId
+            session_id: currentSessionId,
+            attached_files: requestAttachedFiles
           }),
           signal: abortController.signal
         });
@@ -939,6 +1005,45 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Event Listeners ---
+
+  function renderAttachedFiles() {
+    if (!attachedFilesContainer) return;
+    attachedFilesContainer.innerHTML = '';
+    attachedFiles.forEach((path, idx) => {
+      const chip = document.createElement('div');
+      chip.className = 'attached-file-chip';
+      const name = path.split('/').pop() || path;
+      chip.innerHTML = `
+        <span>📄 ${escapeHtml(name)}</span>
+        <span class="remove-attached-file" title="Remove">&times;</span>
+      `;
+      chip.querySelector('.remove-attached-file').addEventListener('click', () => {
+        attachedFiles.splice(idx, 1);
+        renderAttachedFiles();
+      });
+      attachedFilesContainer.appendChild(chip);
+    });
+  }
+
+  goalForm.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.types.includes('application/x-localgpt-file')) {
+      goalForm.classList.add('goal-form--drop-active');
+    }
+  });
+  goalForm.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    goalForm.classList.remove('goal-form--drop-active');
+  });
+  goalForm.addEventListener('drop', (e) => {
+    e.preventDefault();
+    goalForm.classList.remove('goal-form--drop-active');
+    const path = e.dataTransfer.getData('application/x-localgpt-file');
+    if (path && !attachedFiles.includes(path)) {
+      attachedFiles.push(path);
+      renderAttachedFiles();
+    }
+  });
 
   goalForm.addEventListener('submit', (e) => {
     e.preventDefault();

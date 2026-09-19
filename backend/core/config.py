@@ -27,6 +27,9 @@ class Settings(BaseModel):
     ollama_model: str = "qwen3:8b"
     llm_temperature: float = 0.2
     llm_timeout: float = 300.0
+    llm_num_ctx: int = 4096
+    llm_think: bool = False
+    synthesis_timeout: float = 90.0
     
     # RAG / Embedding Configuration
     embedding_model_name: str = "all-MiniLM-L6-v2"

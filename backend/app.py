@@ -44,11 +44,13 @@ app.add_middleware(
 class RunGoalRequest(BaseModel):
     goal: str
     session_id: Optional[str] = None
+    attached_files: list[str] = []
 
 class ChatRequest(BaseModel):
     message: str
     history: list[Dict[str, str]] = []
     session_id: Optional[str] = None
+    attached_files: list[str] = []
 
 class PermissionDecisionRequest(BaseModel):
     request_id: str
@@ -115,7 +117,7 @@ async def run_agent_pipeline(req: RunGoalRequest):
 
     async def event_generator():
         try:
-            async for event_data in agent_orchestrator.run_pipeline(req.goal, req.session_id):
+            async for event_data in agent_orchestrator.run_pipeline(req.goal, req.session_id, attached_files=req.attached_files):
                 payload = json.dumps(event_data)
                 yield f"data: {payload}\n\n"
         except Exception as e:
@@ -144,7 +146,7 @@ async def chat_stream_endpoint(req: ChatRequest):
 
     async def event_generator():
         try:
-            async for data in chat_manager.process_chat_message(req.message, req.history, req.session_id):
+            async for data in chat_manager.process_chat_message(req.message, req.history, req.session_id, attached_files=req.attached_files):
                 yield data
         except Exception as e:
             logger.error(f"Error in chat stream: {e}", exc_info=True)
@@ -161,12 +163,15 @@ async def chat_stream_endpoint(req: ChatRequest):
         }
     )
 
-from fastapi import FastAPI, HTTPException, Request, Query, UploadFile, File, Response
+from fastapi import FastAPI, HTTPException, Request, Query, UploadFile, File, Response, Form
 import io
 import csv
 
 @app.post("/api/workspace/upload")
-async def upload_workspace_files(files: list[UploadFile] = File(...)):
+async def upload_workspace_files(
+    files: list[UploadFile] = File(...),
+    session_id: Optional[str] = Form(None)
+):
     """Upload user documents directly into the workspace and trigger index rebuild."""
     uploaded_files = []
     for file in files:
@@ -181,6 +186,10 @@ async def upload_workspace_files(files: list[UploadFile] = File(...)):
             "filename": safe_filename,
             "size_bytes": len(content)
         })
+        
+        if session_id:
+            rel_path = target_path.relative_to(settings.workspace_dir).as_posix()
+            agent_orchestrator.set_last_uploaded_file(session_id, rel_path)
 
     # Rebuild knowledge base
     reindex_res = knowledge_base.build_index()
@@ -193,6 +202,37 @@ async def upload_workspace_files(files: list[UploadFile] = File(...)):
         "files": uploaded_files,
         "indexed_chunks": reindex_res.get("total_chunks", 0)
     }
+
+from .core.tools import _safe_resolve_path
+
+@app.delete("/api/workspace/files")
+async def delete_workspace_file(filepath: str = Query(..., description="Relative path of file to delete")):
+    """Delete a file from the workspace."""
+    try:
+        # Prevent output deletion if needed? The instructions say "(your call - otherwise allow it too)"
+        # I'll allow it.
+        target_path = _safe_resolve_path(filepath)
+        if not target_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        if target_path.is_file():
+            target_path.unlink()
+        else:
+            raise HTTPException(status_code=400, detail="Path is a directory, not a file")
+            
+        # Re-index knowledge base
+        reindex_res = knowledge_base.build_index()
+        
+        # Clear orchestrator state if this file was referenced
+        agent_orchestrator.clear_file_references(filepath)
+                
+        return {
+            "status": "success",
+            "deleted": filepath,
+            "indexed_chunks": reindex_res.get("total_chunks", 0)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/chat/sessions")
 async def get_chat_sessions():

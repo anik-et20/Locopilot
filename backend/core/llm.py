@@ -36,14 +36,36 @@ class OllamaClient:
             return {"online": False, "error": str(e), "target_model": self.model, "model_ready": False}
         return {"online": False, "target_model": self.model, "model_ready": False}
 
-    def generate(self, prompt: str, system: Optional[str] = None, format_json: bool = False, temperature: float = 0.2, timeout: Optional[float] = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        format_json: bool = False,
+        temperature: float = 0.2,
+        timeout: Optional[float] = None,
+        num_ctx: Optional[int] = None,
+        think: Optional[bool] = None,
+        keep_alive: str = "30m"
+    ) -> str:
         """Synchronous completion generation."""
+        use_think = think if think is not None else settings.llm_think
+        ctx_len = num_ctx if num_ctx is not None else settings.llm_num_ctx
+        
+        # Ensure no_think directive in prompt for models relying on prompt conventions
+        effective_prompt = prompt
+        if use_think is False and not effective_prompt.startswith("/no_think"):
+            effective_prompt = f"/no_think\n{effective_prompt}"
+
         payload: Dict[str, Any] = {
             "model": self.model,
-            "prompt": prompt,
+            "prompt": effective_prompt,
             "stream": False,
+            "think": use_think,
+            "keep_alive": keep_alive,
             "options": {
                 "temperature": temperature,
+                "num_ctx": ctx_len,
+                "think": use_think,
             }
         }
         if system:
@@ -62,14 +84,35 @@ class OllamaClient:
             logger.error(f"Error calling Ollama generate: {e}")
             raise RuntimeError(f"Ollama generation failed: {e}")
 
-    async def generate_async(self, prompt: str, system: Optional[str] = None, format_json: bool = False, temperature: float = 0.2, timeout: Optional[float] = None) -> str:
+    async def generate_async(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        format_json: bool = False,
+        temperature: float = 0.2,
+        timeout: Optional[float] = None,
+        num_ctx: Optional[int] = None,
+        think: Optional[bool] = None,
+        keep_alive: str = "30m"
+    ) -> str:
         """Asynchronous completion generation."""
+        use_think = think if think is not None else settings.llm_think
+        ctx_len = num_ctx if num_ctx is not None else settings.llm_num_ctx
+
+        effective_prompt = prompt
+        if use_think is False and not effective_prompt.startswith("/no_think"):
+            effective_prompt = f"/no_think\n{effective_prompt}"
+
         payload: Dict[str, Any] = {
             "model": self.model,
-            "prompt": prompt,
+            "prompt": effective_prompt,
             "stream": False,
+            "think": use_think,
+            "keep_alive": keep_alive,
             "options": {
                 "temperature": temperature,
+                "num_ctx": ctx_len,
+                "think": use_think,
             }
         }
         if system:
@@ -88,21 +131,42 @@ class OllamaClient:
             logger.error(f"Error in generate_async: {e}")
             raise RuntimeError(f"Ollama async generation failed: {e}")
 
-    async def stream_generate(self, prompt: str, system: Optional[str] = None, temperature: float = 0.2, timeout: Optional[float] = None) -> AsyncGenerator[str, None]:
+    async def stream_generate(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        temperature: float = 0.2,
+        timeout: Optional[float] = None,
+        num_ctx: Optional[int] = None,
+        think: Optional[bool] = None,
+        keep_alive: str = "30m"
+    ) -> AsyncGenerator[str, None]:
         """Stream generated tokens from Ollama."""
+        use_think = think if think is not None else settings.llm_think
+        ctx_len = num_ctx if num_ctx is not None else settings.llm_num_ctx
+
+        effective_prompt = prompt
+        if use_think is False and not effective_prompt.startswith("/no_think"):
+            effective_prompt = f"/no_think\n{effective_prompt}"
+
         payload: Dict[str, Any] = {
             "model": self.model,
-            "prompt": prompt,
+            "prompt": effective_prompt,
             "stream": True,
+            "think": use_think,
+            "keep_alive": keep_alive,
             "options": {
                 "temperature": temperature,
+                "num_ctx": ctx_len,
+                "think": use_think,
             }
         }
         if system:
             payload["system"] = system
 
         req_timeout = timeout if timeout is not None else self.timeout
-        async with httpx.AsyncClient(timeout=req_timeout) as client:
+        client_timeout = httpx.Timeout(req_timeout, connect=15.0, read=req_timeout)
+        async with httpx.AsyncClient(timeout=client_timeout) as client:
             async with client.stream("POST", f"{self.base_url}/api/generate", json=payload) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():

@@ -4,6 +4,7 @@ Implements the 5 strictly whitelisted Python tools.
 Guarantees path sandboxing within the workspace and prevents any arbitrary code/shell execution.
 """
 import os
+import re
 import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -16,6 +17,22 @@ _GENERIC_MATCH_WORDS = {
     'report', 'file', 'document', 'presentation', 'summary',
     'data', 'system', 'analysis', 'diagram', 'notes', 'description'
 }
+
+DEICTIC_PATTERNS = [
+    r'\bthis\s+(pdf|file|document|doc|paper|presentation|deck|sheet|csv)\b',
+    r'\bthe\s+(pdf|file|document|doc|paper|presentation|deck|sheet|csv|upload|uploaded\s+file|provided\s+file|provided\s+pdf|provided\s+document)\b',
+    r'\bthat\s+(pdf|file|document|doc)\b',
+    r'\b(uploaded|provided)\s+(file|pdf|document|doc)\b',
+    r'\b(pdf|file|document|doc)\s+i\s+(have\s+)?(provided|uploaded|sent|attached|shared)\b',
+    r'\b(the\s+)?(upload|uploaded|attached|provided)\b',
+    r'\b(it|them)\b',
+]
+
+
+def has_deictic_reference(goal: str) -> bool:
+    """Check if the goal contains a deictic pronoun or reference to a previously discussed/uploaded file."""
+    g = goal.lower()
+    return any(re.search(pat, g) for pat in DEICTIC_PATTERNS)
 
 
 def find_file_in_goal(goal: str) -> Optional[str]:

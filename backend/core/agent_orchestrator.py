@@ -7,6 +7,7 @@ REPORT RESULT + SOURCES → AUDIT LOG
 """
 import re
 import uuid
+import time
 import asyncio
 import logging
 from pathlib import Path
@@ -35,6 +36,7 @@ class AgentOrchestrator:
         self._active_sessions: Dict[str, Dict[str, Any]] = {}
         self._session_last_output: Dict[str, str] = {}
         self._session_last_referenced: Dict[str, str] = {}
+        self._session_last_uploaded: Dict[str, str] = {}
 
     def get_last_output_file(self, session_id: str) -> Optional[str]:
         """Get the most recently created output file for a session (session-scoped only)."""
@@ -65,6 +67,53 @@ class AgentOrchestrator:
         self._session_last_referenced[session_id] = filepath
         if session_id in self._active_sessions:
             self._active_sessions[session_id]["last_referenced_file"] = filepath
+
+    def get_last_uploaded_file(self, session_id: str) -> Optional[str]:
+        """Get the most recently uploaded workspace file for a session."""
+        if session_id in self._session_last_uploaded:
+            return self._session_last_uploaded[session_id]
+        if session_id in self._active_sessions and "last_uploaded_file" in self._active_sessions[session_id]:
+            return self._active_sessions[session_id]["last_uploaded_file"]
+        return None
+
+    def set_last_uploaded_file(self, session_id: str, filepath: str):
+        """Record the most recently uploaded workspace file for a session."""
+        self._session_last_uploaded[session_id] = filepath
+        self._session_last_referenced[session_id] = filepath
+        if session_id in self._active_sessions:
+            self._active_sessions[session_id]["last_uploaded_file"] = filepath
+            self._active_sessions[session_id]["last_referenced_file"] = filepath
+
+    def clear_file_references(self, filepath: str):
+        """Clear cached references to a deleted file across all sessions."""
+        target_name = Path(filepath).name.lower()
+        target_rel = filepath.replace("\\", "/").strip("/").lower()
+
+        def matches(f: Optional[str]) -> bool:
+            if not f:
+                return False
+            f_norm = f.replace("\\", "/").strip("/").lower()
+            return f_norm == target_rel or Path(f).name.lower() == target_name
+
+        for s_id in list(self._session_last_referenced.keys()):
+            if matches(self._session_last_referenced.get(s_id)):
+                del self._session_last_referenced[s_id]
+
+        for s_id in list(self._session_last_uploaded.keys()):
+            if matches(self._session_last_uploaded.get(s_id)):
+                del self._session_last_uploaded[s_id]
+
+        for s_id in list(self._session_last_output.keys()):
+            if matches(self._session_last_output.get(s_id)):
+                del self._session_last_output[s_id]
+
+        for s_id, sess_data in self._active_sessions.items():
+            if matches(sess_data.get("last_referenced_file")):
+                sess_data.pop("last_referenced_file", None)
+            if matches(sess_data.get("last_uploaded_file")):
+                sess_data.pop("last_uploaded_file", None)
+            if matches(sess_data.get("last_output_file")):
+                sess_data.pop("last_output_file", None)
 
     def resolve_referenced_file_from_history(self, history: Optional[List[Dict[str, str]]], session_id: str) -> Optional[str]:
         """Resolve the most recently discussed workspace file by scanning history backwards."""
@@ -123,6 +172,79 @@ class AgentOrchestrator:
         return False
 
 
+    def _is_reference_to_prior_response(self, goal: str) -> bool:
+        """Detect if the user is asking to save/export what the assistant previously said in chat."""
+        g = goal.lower().strip()
+
+        prior_response_phrases = [
+            "the response you gave", "the response you provided", "the response above",
+            "that response", "your response", "your last response", "your previous response",
+            "this response", "the prior response",
+            "what you just said", "what you said", "what you provided", "what you answered",
+            "what you gave", "what was said", "what you generated",
+            "that summary", "the summary you provided", "the summary you gave", "the summary above",
+            "your summary", "your last summary", "your previous summary", "the brief you gave",
+            "your last answer", "your previous answer", "the answer above", "that answer",
+            "the answer you gave", "the answer you provided", "this answer", "the prior answer",
+            "your explanation", "the explanation above", "that explanation"
+        ]
+
+        has_phrase = any(p in g for p in prior_response_phrases)
+        if not has_phrase:
+            has_phrase = bool(re.search(r'\b(the|that|your|this|last|previous)\s+(response|answer|summary|brief|explanation)\b', g))
+
+        if not has_phrase:
+            return False
+
+        save_signals = [
+            "save", "export", "write", "create", "make", "generate", "store", "download", "dump",
+            "file", "pdf", "md", "markdown", "doc", "document", "txt"
+        ]
+        return any(sig in g for sig in save_signals)
+
+    def _resolve_target_filepath(self, goal: str, default_name: str = "saved_response") -> str:
+        """Deterministically extract or derive the destination filepath from user goal."""
+        g = goal.strip()
+        is_pdf = bool(re.search(r'\bpdf\b', g.lower()))
+        default_ext = ".pdf" if is_pdf else ".md"
+
+        # 1. Match filename in quotes: "output/summary.md" or 'summary.pdf'
+        quote_match = re.search(r'["\']([^"\']+)["\']', g)
+        if quote_match:
+            raw_path = quote_match.group(1).strip()
+            path_obj = Path(raw_path)
+            ext = path_obj.suffix if path_obj.suffix else default_ext
+            stem = path_obj.stem
+            if not str(path_obj).startswith("output"):
+                return f"output/{stem}{ext}"
+            return f"{path_obj.parent.as_posix()}/{stem}{ext}".lstrip("/")
+
+        # 2. Match explicit file path ending with known extension (.md, .pdf, .txt, etc.)
+        ext_match = re.search(r'\b([a-zA-Z0-9_\-\.\/]+\.(?:md|pdf|txt|json|csv|docx?|pptx?))\b', g, re.IGNORECASE)
+        if ext_match:
+            raw_path = ext_match.group(1).strip().rstrip(".,;:")
+            path_obj = Path(raw_path)
+            ext = path_obj.suffix if path_obj.suffix else default_ext
+            stem = path_obj.stem
+            if not str(path_obj).startswith("output"):
+                return f"output/{stem}{ext}"
+            return f"{path_obj.parent.as_posix()}/{stem}{ext}".lstrip("/")
+
+        # 3. Match after keywords like named or called
+        named_match = re.search(r'\b(?:named|called)\s+["\']?([a-zA-Z0-9_\-\.\/]+)["\']?', g, re.IGNORECASE)
+        if named_match:
+            candidate = named_match.group(1).strip().rstrip(".,;:")
+            if candidate.lower() not in ["a", "the", "pdf", "file", "markdown", "md", "txt", "doc", "document"]:
+                path_obj = Path(candidate)
+                ext = path_obj.suffix if path_obj.suffix else default_ext
+                stem = path_obj.stem
+                if not str(path_obj).startswith("output"):
+                    return f"output/{stem}{ext}"
+                return f"{path_obj.parent.as_posix()}/{stem}{ext}".lstrip("/")
+
+        # 4. Default fallback
+        return f"output/{default_name}{default_ext}"
+
     def _is_short_followup_confirmation(self, goal: str) -> bool:
         """Check if goal is a short follow-up or confirmation."""
         g = goal.lower().strip()
@@ -138,7 +260,7 @@ class AgentOrchestrator:
             return True
         return False
 
-    async def run_pipeline(self, user_goal: str, session_id: Optional[str] = None, history: Optional[List[Dict[str, str]]] = None) -> AsyncGenerator[Dict[str, Any], None]:
+    async def run_pipeline(self, user_goal: str, session_id: Optional[str] = None, history: Optional[List[Dict[str, str]]] = None, attached_files: Optional[List[str]] = None) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute the full agentic loop, yielding real-time status events for SSE streaming."""
         sess_id = session_id or str(uuid.uuid4())[:8]
         if sess_id not in self._active_sessions:
@@ -180,11 +302,69 @@ class AgentOrchestrator:
                 "message": "LocalGPT initialized in privacy-first local workspace mode."
             }
 
+            # Check if this is a request to save what the assistant previously said in chat
+            prior_assistant_msg = ""
+            if self._is_reference_to_prior_response(user_goal):
+                if history:
+                    for msg in reversed(history):
+                        if msg.get("role") == "assistant" and msg.get("content", "").strip():
+                            prior_assistant_msg = msg["content"].strip()
+                            break
+                if not prior_assistant_msg:
+                    from .chat_history import chat_history_db
+                    db_history = chat_history_db.get_history(sess_id)
+                    for msg in reversed(db_history):
+                        if msg.get("role") == "assistant" and msg.get("content", "").strip():
+                            prior_assistant_msg = msg["content"].strip()
+                            break
+
             # Check if this is a follow-up conversion request referencing last output
             last_output = self.get_last_output_file(sess_id)
             last_ref = self.resolve_referenced_file_from_history(history, sess_id)
 
-            if self._is_followup_conversion_request(user_goal) and last_output:
+            if prior_assistant_msg:
+                logger.info(f"Shortcut: saving prior assistant response for session {sess_id} (length: {len(prior_assistant_msg)})")
+                target_filepath = self._resolve_target_filepath(user_goal, default_name="saved_response")
+                classification = "ACTION"
+
+                yield {
+                    "event": "UNDERSTAND",
+                    "session_id": sess_id,
+                    "classification": classification,
+                    "message": f"Identified request to save prior assistant response to '{target_filepath}'"
+                }
+
+                formatted_rag = {
+                    "sources": [{"filename": "Prior Chat Response", "relative_path": "chat_history", "score": 1.0}],
+                    "context_text": prior_assistant_msg,
+                    "formatted_block": "Source: Prior Assistant Response in Conversation"
+                }
+                yield {
+                    "event": "KNOWLEDGE_RETRIEVED",
+                    "session_id": sess_id,
+                    "sources": formatted_rag["sources"],
+                    "total_chunks": 1,
+                    "context_preview": f"Using prior assistant response ({len(prior_assistant_msg)} chars)",
+                    "message": "Loaded exact prior conversation response content."
+                }
+
+                plan = ExecutionPlan(
+                    goal=user_goal,
+                    classification=classification,
+                    summary=f"Save prior assistant response to workspace at {target_filepath}",
+                    steps=[
+                        PlanStep(
+                            id=1,
+                            description=f"Save response content to {target_filepath}",
+                            tool="create_file",
+                            params={"filepath": target_filepath, "content": prior_assistant_msg},
+                            risk_level="HIGH",
+                            reasoning=f"Write prior generated response into {target_filepath}",
+                            expected_output=f"Created {target_filepath}"
+                        )
+                    ]
+                )
+            elif self._is_followup_conversion_request(user_goal) and last_output:
                 logger.info(f"Shortcut: follow-up conversion request for session {sess_id} on last output {last_output}")
                 target_pdf = last_output if last_output.endswith(".pdf") else re.sub(r'\.[^.]+$', '.pdf', last_output)
                 classification = "ACTION"
@@ -303,35 +483,122 @@ class AgentOrchestrator:
                 }
 
                 # 3. Stage: Search Local Knowledge (RAG)
-                matched_file = find_file_in_goal(user_goal)
+                from .tools import has_deictic_reference, read_file, find_file_in_goal
+                
+                matched_file = None
+                branch_taken = ""
+
+                # Step A0: Check for explicitly attached files
+                if attached_files and len(attached_files) > 0:
+                    matched_file = attached_files[0]
+                    branch_taken = "explicitly_attached"
+                    
+                    # Update understanding event retroactively to show we used attached files
+                    yield {
+                        "event": "UNDERSTAND",
+                        "session_id": sess_id,
+                        "classification": classification,
+                        "message": f"Using attached file(s): {', '.join(Path(f).name for f in attached_files)}"
+                    }
+
+                # Step A: Check for deictic reference ("this pdf", "the pdf i have provided", etc.)
+                if not matched_file and has_deictic_reference(user_goal):
+                    candidate = self.get_last_uploaded_file(sess_id) or self.get_last_referenced_file(sess_id)
+                    if candidate:
+                        matched_file = candidate
+                        branch_taken = "deictic_session_match"
+
+                # Step B: If not resolved by deictic reference, check if goal mentions a specific workspace filename
+                if not matched_file:
+                    goal_match = find_file_in_goal(user_goal)
+                    if goal_match:
+                        matched_file = goal_match
+                        branch_taken = "goal_filename_match"
+
+                # Step C: Fallback to last referenced file from history if available and deictic
+                if not matched_file and has_deictic_reference(user_goal):
+                    hist_file = self.resolve_referenced_file_from_history(history, sess_id)
+                    if hist_file:
+                        matched_file = hist_file
+                        branch_taken = "history_deictic_match"
+                
                 if matched_file:
                     self.set_last_referenced_file(sess_id, matched_file)
-                    rag_query = Path(matched_file).name.split(".")[0].replace("_", " ").replace("-", " ")
+                    logger.info(f"[STAGE 3: RESOLVED-FILE] Branch '{branch_taken}' -> Target file '{matched_file}' resolved directly for session '{sess_id}'. Skipping broad workspace search.")
+                    print(f"  [+] Stage 3 [Resolved-File]: Direct target '{matched_file}' resolved via branch '{branch_taken}' for session '{sess_id}'.")
+                    
+                    try:
+                        file_data = read_file(matched_file)
+                        content = file_data.get("content", "")
+                        
+                        formatted_rag = {
+                            "sources": [{"filename": file_data.get("filename", Path(matched_file).name), "relative_path": matched_file, "score": 1.0}],
+                            "context_text": content,
+                            "formatted_block": f"Source document: {matched_file}\n\n{content[:2000]}"
+                        }
+                        
+                        audit_logger.log_event(
+                            event_type="KNOWLEDGE_SEARCHED",
+                            session_id=sess_id,
+                            goal=user_goal,
+                            sources_cited=formatted_rag["sources"],
+                            details={"num_results": 1, "exact_match": True, "resolved_file": matched_file, "branch": branch_taken}
+                        )
+                        yield {
+                            "event": "KNOWLEDGE_RETRIEVED",
+                            "session_id": sess_id,
+                            "sources": formatted_rag["sources"],
+                            "total_chunks": 1,
+                            "context_preview": formatted_rag["formatted_block"][:400] + "..." if len(formatted_rag["formatted_block"]) > 400 else formatted_rag["formatted_block"],
+                            "message": f"Resolved target file '{matched_file}' directly."
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to read matched file {matched_file}: {e}")
+                        rag_query = user_goal
+                        rag_results = knowledge_base.search(rag_query, top_k=4)
+                        formatted_rag = knowledge_base.format_retrieved_context(rag_results)
+                        
+                        audit_logger.log_event(
+                            event_type="KNOWLEDGE_SEARCHED",
+                            session_id=sess_id,
+                            goal=user_goal,
+                            sources_cited=formatted_rag["sources"],
+                            details={"num_results": len(rag_results), "fallback": True, "error": str(e)}
+                        )
+                        yield {
+                            "event": "KNOWLEDGE_RETRIEVED",
+                            "session_id": sess_id,
+                            "sources": formatted_rag["sources"],
+                            "total_chunks": len(rag_results),
+                            "context_preview": formatted_rag["formatted_block"][:400] + "..." if len(formatted_rag["formatted_block"]) > 400 else formatted_rag["formatted_block"],
+                            "message": f"Retrieved {len(rag_results)} relevant chunks from personal workspace."
+                        }
                 else:
+                    logger.info(f"[STAGE 3: BROAD-SEARCH] No specific file resolved for session '{sess_id}'. Performing broad RAG search across workspace.")
+                    print(f"  [*] Stage 3 [Broad-Search]: Broad workspace RAG search for query: '{user_goal}'.")
                     rag_query = user_goal
-
-                rag_results = knowledge_base.search(rag_query, top_k=4)
-                formatted_rag = knowledge_base.format_retrieved_context(rag_results)
-                
-                audit_logger.log_event(
-                    event_type="KNOWLEDGE_SEARCHED",
-                    session_id=sess_id,
-                    goal=user_goal,
-                    sources_cited=formatted_rag["sources"],
-                    details={"num_results": len(rag_results)}
-                )
-                yield {
-                    "event": "KNOWLEDGE_RETRIEVED",
-                    "session_id": sess_id,
-                    "sources": formatted_rag["sources"],
-                    "total_chunks": len(rag_results),
-                    "context_preview": formatted_rag["formatted_block"][:400] + "..." if len(formatted_rag["formatted_block"]) > 400 else formatted_rag["formatted_block"],
-                    "message": f"Retrieved {len(rag_results)} relevant chunks from personal workspace."
-                }
+                    rag_results = knowledge_base.search(rag_query, top_k=4)
+                    formatted_rag = knowledge_base.format_retrieved_context(rag_results)
+                    
+                    audit_logger.log_event(
+                        event_type="KNOWLEDGE_SEARCHED",
+                        session_id=sess_id,
+                        goal=user_goal,
+                        sources_cited=formatted_rag["sources"],
+                        details={"num_results": len(rag_results), "exact_match": False, "branch": "broad_search"}
+                    )
+                    yield {
+                        "event": "KNOWLEDGE_RETRIEVED",
+                        "session_id": sess_id,
+                        "sources": formatted_rag["sources"],
+                        "total_chunks": len(rag_results),
+                        "context_preview": formatted_rag["formatted_block"][:400] + "..." if len(formatted_rag["formatted_block"]) > 400 else formatted_rag["formatted_block"],
+                        "message": f"Retrieved {len(rag_results)} relevant chunks from personal workspace."
+                    }
 
                 # 4. Stage: Reason & Plan
                 workspace_hint = f"Found {len(formatted_rag['sources'])} files: " + ", ".join(s["filename"] for s in formatted_rag["sources"])
-                plan = await planner.generate_plan(user_goal, workspace_hint, history=history)
+                plan = await planner.generate_plan(user_goal, workspace_hint, history=history, resolved_file=matched_file)
             
             audit_logger.log_event(
                 event_type="PLAN_GENERATED",
@@ -366,7 +633,7 @@ class AgentOrchestrator:
                 }
 
                 # Special parameter dynamic synthesis / content forwarding for create_file
-                if step.tool == "create_file" and (not step.params.get("content") or len(step.params.get("content", "")) < 50):
+                if step.tool == "create_file" and not step.params.get("content"):
                     # Check if a prior read_file step output content is available
                     prior_read_content = None
                     for s_out in accumulated_context["step_outputs"].values():
@@ -513,23 +780,35 @@ class AgentOrchestrator:
                     "summary": verification.summary_message
                 }
 
-            # 6. Final Report & Synthesis
-            final_answer = await self._synthesize_final_report(user_goal, plan, accumulated_context)
-            
-            audit_logger.log_event(
-                event_type="SESSION_COMPLETED",
-                session_id=sess_id,
-                goal=user_goal,
-                details={"status": "success", "final_answer_length": len(final_answer)}
-            )
+            # Merge read outputs into rag_context for read-only plans
+            has_write_step = any(s.tool in ["create_file", "create_folder", "modify_file", "delete_file"] for s in plan.steps)
+            if not has_write_step:
+                read_contents = []
+                for s in plan.steps:
+                    if s.tool in ["read_file", "search_documents"]:
+                        out = accumulated_context["step_outputs"].get(f"step_{s.id}")
+                        if out and isinstance(out, dict) and "content" in out:
+                            read_contents.append(f"--- Document ({s.params.get('filepath', 'unknown')}) ---\n{out['content']}")
+                        elif isinstance(out, str) and out.strip():
+                            read_contents.append(out)
+                
+                if read_contents:
+                    merged_read = "\n\n".join(read_contents)
+                    if not accumulated_context["rag_context"]:
+                        accumulated_context["rag_context"] = merged_read
+                    else:
+                        accumulated_context["rag_context"] += "\n\n" + merged_read
 
-            yield {
-                "event": "FINAL_REPORT",
-                "session_id": sess_id,
-                "final_answer": final_answer,
-                "sources": formatted_rag["sources"],
-                "message": "LocalGPT workflow completed successfully."
-            }
+            # 6. Final Report & Synthesis
+            async for report_ev in self._stream_synthesize_final_report(user_goal, plan, accumulated_context, sess_id):
+                yield report_ev
+                if report_ev.get("event") == "FINAL_REPORT":
+                    audit_logger.log_event(
+                        event_type="SESSION_COMPLETED",
+                        session_id=sess_id,
+                        goal=user_goal,
+                        details={"status": "success", "final_answer_length": len(report_ev.get("final_answer", ""))}
+                    )
             terminal_event_yielded = True
 
         except Exception as e:
@@ -713,6 +992,114 @@ The following local files were reviewed during this operation:
 *Created and verified deterministically by LocalGPT on-device engine.*
 """
 
+    async def _stream_synthesize_final_report(self, goal: str, plan: ExecutionPlan, context: Dict[str, Any], sess_id: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """Stream final user summary token-by-token for responsive UI rendering and resilient networking."""
+        pdf_step = next((s for s in plan.steps if s.tool == "create_file" and s.params.get("filepath", "").endswith(".pdf")), None)
+        if pdf_step:
+            pdf_path = pdf_step.params.get("filepath", "output/tailored_application.pdf")
+            ans = (
+                f"### ✅ PDF Document Generated & Verified\n\n"
+                f"1. **Converted Source Content:** Successfully compiled document into structured PDF format.\n"
+                f"2. **Target File:** `{pdf_path}`\n"
+                f"3. **Verification Status:** Passed post-action disk verification (valid PDF header, verified non-empty binary payload).\n"
+                f"4. **Accessibility:** The file is immediately available in your local workspace."
+            )
+            yield {
+                "event": "FINAL_REPORT",
+                "session_id": sess_id,
+                "final_answer": ans,
+                "sources": context.get("sources", []),
+                "message": "LocalGPT workflow completed successfully."
+            }
+            return
+
+        has_create_file = any(s.tool == "create_file" for s in plan.steps)
+        has_full_read = any(s.tool == "read_file" for s in plan.steps)
+        sources_list = ", ".join(s.get('filename', '') for s in context.get('sources', []))
+
+        if not has_create_file:
+            rag_text = context.get('rag_context', '')
+            for s_out in context.get("step_outputs", {}).values():
+                if isinstance(s_out, dict) and s_out.get("content"):
+                    rag_text += "\n" + s_out["content"]
+            
+            max_chars = 4000 if has_full_read else 2000
+            concise_rag = rag_text[:max_chars] if len(rag_text) > max_chars else rag_text
+            prompt = f"""You are LocalGPT. Answer the user's request directly, fully, and comprehensively based on the provided context.
+Goal: "{goal}"
+Context: {concise_rag}"""
+
+            timeout = (settings.synthesis_timeout if has_full_read else 45.0)
+            start_synth = time.time()
+            accumulated_text = ""
+            failure_reason = ""
+
+            yield {"event": "CHAT_START", "session_id": sess_id}
+
+            try:
+                async for token in ollama_client.stream_generate(prompt=prompt, temperature=0.3, timeout=timeout, num_ctx=4096, think=False):
+                    accumulated_text += token
+                    yield {"event": "CHAT_TOKEN", "session_id": sess_id, "token": token}
+                
+                elapsed_synth = time.time() - start_synth
+                if accumulated_text and len(accumulated_text.strip()) > 20:
+                    logger.info(f"Streamed final report synthesis succeeded in {elapsed_synth:.2f}s ({len(accumulated_text)} chars)")
+                    yield {
+                        "event": "FINAL_REPORT",
+                        "session_id": sess_id,
+                        "final_answer": accumulated_text.strip(),
+                        "sources": context.get("sources", []),
+                        "message": "LocalGPT workflow completed successfully."
+                    }
+                    yield {"event": "CHAT_DONE", "session_id": sess_id}
+                    return
+                else:
+                    failure_reason = f"response too short ({len(accumulated_text.strip())} chars)"
+            except Exception as e:
+                elapsed_synth = time.time() - start_synth
+                failure_reason = f"{type(e).__name__}: {e}"
+                logger.warning(f"Streaming final report synthesis failed after {elapsed_synth:.1f}s: {failure_reason}")
+
+            # Fallback when streaming synthesis encounters error/timeout
+            extracted_preview = ""
+            if has_full_read:
+                for s_out in context.get("step_outputs", {}).values():
+                    if isinstance(s_out, dict) and s_out.get("content"):
+                        extracted_preview = s_out["content"][:2000]
+                        break
+            
+            reason_str = failure_reason if failure_reason else f"response was too short after {elapsed_synth:.1f}s"
+            if extracted_preview:
+                fallback_ans = (
+                    f"### Output\n\n"
+                    f"AI summary timed out or was unavailable after {elapsed_synth:.1f}s ({reason_str}) — showing extracted text from {sources_list or 'the document'} instead:\n\n"
+                    f"```text\n{extracted_preview}\n```"
+                )
+            else:
+                fallback_ans = (
+                    f"### Output\n\n"
+                    f"Could not generate a rich summary (timed out after {elapsed_synth:.1f}s: {reason_str}), but consulted these sources:\n"
+                    f"{sources_list or 'Local workspace documents'}"
+                )
+            
+            yield {
+                "event": "FINAL_REPORT",
+                "session_id": sess_id,
+                "final_answer": fallback_ans,
+                "sources": context.get("sources", []),
+                "message": "LocalGPT completed with fallback summary."
+            }
+            yield {"event": "CHAT_DONE", "session_id": sess_id}
+        else:
+            ans = await self._synthesize_final_report(goal, plan, context)
+            yield {
+                "event": "FINAL_REPORT",
+                "session_id": sess_id,
+                "final_answer": ans,
+                "sources": context.get("sources", []),
+                "message": "LocalGPT workflow completed successfully."
+            }
+
     async def _synthesize_final_report(self, goal: str, plan: ExecutionPlan, context: Dict[str, Any]) -> str:
         """Generate final user summary with source provenance."""
 
@@ -728,21 +1115,70 @@ The following local files were reviewed during this operation:
                 f"4. **Accessibility:** The file is immediately available in your local workspace."
             )
 
-        rag_text = context.get('rag_context', '')
-        concise_rag = rag_text[:600] if len(rag_text) > 600 else rag_text
-        prompt = f"""You are LocalGPT. Write a brief 3-point bulleted summary for the user.
+        has_create_file = any(s.tool == "create_file" for s in plan.steps)
+        has_full_read = any(s.tool == "read_file" for s in plan.steps)
+        
+        # If we didn't create a file, we should answer the user directly with more context
+        if not has_create_file:
+            # We want to give the model as much relevant context as possible
+            rag_text = context.get('rag_context', '')
+            # Add step outputs (like read_file output) if available
+            for s_out in context.get("step_outputs", {}).values():
+                if isinstance(s_out, dict) and s_out.get("content"):
+                    rag_text += "\n" + s_out["content"]
+                    
+            max_chars = 4000 if has_full_read else 2000
+            concise_rag = rag_text[:max_chars] if len(rag_text) > max_chars else rag_text
+            prompt = f"""You are LocalGPT. Answer the user's request directly, fully, and comprehensively based on the provided context.
+Goal: "{goal}"
+Context: {concise_rag}"""
+        else:
+            rag_text = context.get('rag_context', '')
+            concise_rag = rag_text[:600] if len(rag_text) > 600 else rag_text
+            prompt = f"""You are LocalGPT. Write a brief 3-point bulleted summary of the actions taken for the user.
 Goal: "{goal}"
 Plan: {plan.summary}
 Sources: {concise_rag}"""
 
+        elapsed_synth = 0.0
+        failure_reason = ""
         try:
-            report = await ollama_client.generate_async(prompt=prompt, temperature=0.3, timeout=15.0)
+            # For direct answers, we might need more time/tokens
+            timeout = (settings.synthesis_timeout if has_full_read else 45.0) if not has_create_file else 20.0
+            start_synth = time.time()
+            report = await ollama_client.generate_async(prompt=prompt, temperature=0.3, timeout=timeout, num_ctx=4096, think=False)
+            elapsed_synth = time.time() - start_synth
             if report and len(report.strip()) > 50:
+                logger.info(f"Final report synthesis succeeded in {elapsed_synth:.2f}s (length: {len(report)} chars)")
                 return report.strip()
+            logger.warning(f"Final report synthesis returned short output ({len(report.strip()) if report else 0} chars) after {elapsed_synth:.2f}s")
         except Exception as e:
-            logger.warning(f"Final report synthesis fallback: {e}")
+            elapsed_synth = time.time() - start_synth
+            failure_reason = f"{type(e).__name__}: {e}"
+            logger.warning(f"Final report synthesis failed after {elapsed_synth:.1f}s: {failure_reason}")
 
-        sources_list = ", ".join(s['filename'] for s in context.get('sources', []))
+        sources_list = ", ".join(s.get('filename', '') for s in context.get('sources', []))
+        if not has_create_file:
+            extracted_preview = ""
+            if has_full_read:
+                for s_out in context.get("step_outputs", {}).values():
+                    if isinstance(s_out, dict) and s_out.get("content"):
+                        extracted_preview = s_out["content"][:2000]
+                        break
+            
+            reason_str = failure_reason if failure_reason else f"response was too short after {elapsed_synth:.1f}s"
+            if extracted_preview:
+                return (
+                    f"### Output\n\n"
+                    f"AI summary timed out or was unavailable after {elapsed_synth:.1f}s ({reason_str}) — showing extracted text from {sources_list or 'the document'} instead:\n\n"
+                    f"```text\n{extracted_preview}\n```"
+                )
+            return (
+                f"### Output\n\n"
+                f"Could not generate a rich summary (timed out after {elapsed_synth:.1f}s: {reason_str}), but consulted these sources:\n"
+                f"{sources_list or 'Local workspace documents'}"
+            )
+        
         return (
             f"### Task Completed Successfully\n\n"
             f"**Goal:** {goal}\n\n"

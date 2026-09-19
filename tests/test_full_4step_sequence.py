@@ -173,8 +173,41 @@ def run_4step_verification():
     assert summary_file.stat().st_size > 500, "Step 4 failed: summary file is empty!"
     print(f"  [PASS] Step 4 passed! Verified {summary_file.name} created in {elapsed:.2f}s without hanging.", flush=True)
 
+    # -------------------------------------------------------------
+    # Step 5: Upload + "give me the summary from the pdf i have provided" (BUG 1 & BUG 2 Verification)
+    # -------------------------------------------------------------
+    print("\n[STEP 5] Uploading file and asking 'give me the summary from the pdf i have provided'...", flush=True)
+    
+    # Create dummy upload file
+    test_pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    upload_res = httpx.post(f"{BASE_URL}/api/workspace/upload", files=[("files", ("test_upload_summary.pdf", test_pdf_content, "application/pdf"))], data={"session_id": session_id})
+    assert upload_res.status_code == 200, "Failed to upload test file"
+    
+    goal_5 = "give me the summary from the pdf i have provided"
+    step5_completed = False
+    with httpx.Client(base_url=BASE_URL, timeout=120.0) as client:
+        with client.stream("POST", "/api/chat/stream", json={"message": goal_5, "session_id": session_id, "history": history}) as response:
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    data = json.loads(line[6:])
+                    ev = data.get("event")
+                    if ev == "KNOWLEDGE_RETRIEVED":
+                        sources = [s['filename'] for s in data.get('sources', [])]
+                        print(f"  -> Knowledge Retrieved: {sources}", flush=True)
+                        assert len(sources) == 1 and sources[0] == "test_upload_summary.pdf", "BUG 1: Should resolve directly to uploaded file without cross-file RAG noise"
+                    elif ev == "PLAN_GENERATED":
+                        steps = data.get('plan', {}).get('steps', [])
+                        print(f"  -> Plan steps: {[s.get('tool') for s in steps]}", flush=True)
+                        assert not any(s.get('tool') in ('create_file', 'create_folder') for s in steps), "BUG 2: Should not contain create_file steps"
+                    elif ev == "FINAL_REPORT":
+                        print(f"  -> Final Report received.", flush=True)
+                        step5_completed = True
+
+    assert step5_completed, "Step 5 did not complete successfully!"
+    print(f"  [PASS] Step 5 passed! BUG 1 and BUG 2 verified.", flush=True)
+
     print("\n==================================================", flush=True)
-    print("  ALL 4 STEPS PASSED PERFECTLY END-TO-END!", flush=True)
+    print("  ALL 5 STEPS PASSED PERFECTLY END-TO-END!", flush=True)
     print("==================================================\n", flush=True)
 
 if __name__ == "__main__":

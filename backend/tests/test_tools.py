@@ -59,3 +59,19 @@ def test_audit_logging():
 
     entries = audit_logger.get_entries(session_id="test_sess_1")
     assert len(entries) >= 1
+
+from backend.core.tools import has_deictic_reference, find_file_in_goal
+import pytest
+
+def test_deictic_reference_detection():
+    assert has_deictic_reference("summarize this pdf") is True
+    assert has_deictic_reference("what does the file say") is True
+    assert has_deictic_reference("review my resume") is False
+
+@pytest.mark.asyncio
+async def test_planner_zero_create_file_on_summary():
+    from backend.core.planner import planner
+    plan = await planner.generate_plan("summarize this pdf")
+    assert plan.classification in ("ANALYSIS", "QUESTION", "SEARCH")
+    for step in plan.steps:
+        assert step.tool not in ("create_file", "create_folder")

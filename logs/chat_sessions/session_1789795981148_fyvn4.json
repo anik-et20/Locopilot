@@ -1,0 +1,18 @@
+{
+  "session_id": "session_1789795981148_fyvn4",
+  "created_at": "2026-09-19T05:33:27.499188+00:00",
+  "updated_at": "2026-09-19T05:34:24.558403+00:00",
+  "title": "summarize this pdf that i have provided",
+  "messages": [
+    {
+      "role": "user",
+      "content": "summarize this pdf that i have provided",
+      "timestamp": "2026-09-19T05:33:27.499188+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "### Output\n\nCould not generate a rich summary, but consulted these sources:\nMedicaid_Lottery_Causal_Inference_Assignment.pdf\n\n*(Model synthesis timed out or failed.)*",
+      "timestamp": "2026-09-19T05:34:24.558403+00:00"
+    }
+  ]
+}

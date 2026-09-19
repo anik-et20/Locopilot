@@ -1,0 +1,18 @@
+{
+  "session_id": "session_1789789931870_nx0k4",
+  "created_at": "2026-09-19T03:56:56.627306+00:00",
+  "updated_at": "2026-09-19T03:59:40.166321+00:00",
+  "title": "give me the summary from the pdf i have provi",
+  "messages": [
+    {
+      "role": "user",
+      "content": "give me the summary from the pdf i have provided",
+      "timestamp": "2026-09-19T03:56:56.627306+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "### Output\n\nCould not generate a rich summary, but consulted these sources:\nLearnFlow_LMS_Presentation.pptx, Alex_Rivera_Resume.md, Project_Alpha_Technical_Report.md\n\n*(Model synthesis timed out or failed.)*",
+      "timestamp": "2026-09-19T03:59:40.166321+00:00"
+    }
+  ]
+}

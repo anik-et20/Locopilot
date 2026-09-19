@@ -12,7 +12,7 @@ from .rag import knowledge_base
 logger = logging.getLogger("localgpt.chat")
 
 class ChatManager:
-    async def process_chat_message(self, message: str, history: List[Dict[str, str]], session_id: Optional[str] = None) -> AsyncGenerator[str, None]:
+    async def process_chat_message(self, message: str, history: List[Dict[str, str]], session_id: Optional[str] = None, attached_files: List[str] = None) -> AsyncGenerator[str, None]:
         """
         Process a chat message. 
         1. Classifies if the message requires workspace agent execution or normal chat.
@@ -22,6 +22,7 @@ class ChatManager:
         """
         sess_id = session_id or "default"
         terminal_event_emitted = False
+        attached_files = attached_files or []
 
         try:
             classification = await self._classify_intent(message, history)
@@ -32,7 +33,7 @@ class ChatManager:
             if classification == "AGENT":
                 # Yield events from the agent orchestrator
                 yield f"data: {json.dumps({'event': 'ROUTING', 'target': 'AGENT', 'session_id': sess_id, 'message': 'Workspace action/multi-step plan detected. Triggering agent pipeline...'})}\n\n"
-                async for event_data in agent_orchestrator.run_pipeline(message, sess_id, history=history):
+                async for event_data in agent_orchestrator.run_pipeline(message, sess_id, history=history, attached_files=attached_files):
                     ev_type = event_data.get("event")
                     if ev_type in ["FINAL_REPORT", "ERROR"]:
                         terminal_event_emitted = True
@@ -51,11 +52,14 @@ class ChatManager:
                             workspace_files.append(rel)
 
                 # Check if query or recent conversation mentions a specific workspace file
-                target_specific_files = []
+                target_specific_files = list(attached_files)
+                for f in target_specific_files:
+                    agent_orchestrator.set_last_referenced_file(sess_id, f)
+
                 for wf in workspace_files:
                     wf_name = Path(wf).name.lower()
                     wf_stem = Path(wf).stem.lower()
-                    if wf_name in message.lower() or wf_stem in message.lower():
+                    if (wf_name in message.lower() or wf_stem in message.lower()) and wf not in target_specific_files:
                         target_specific_files.append(wf)
                         agent_orchestrator.set_last_referenced_file(sess_id, wf)
                 
@@ -143,6 +147,9 @@ class ChatManager:
             "provide the response in a pdf", "provide the response in pdf", "give in pdf", "give it in pdf",
             "make it a pdf", "make it pdf", "convert to pdf", "convert it to pdf", "convert that to pdf",
             "export as pdf", "export to pdf", "save as pdf", "turn it into a pdf", "turn into pdf",
+            "save the response", "save that response", "save response", "save what you", "save your response",
+            "save your answer", "save that summary", "save the summary", "save this summary", "save this response",
+            "save what you said", "save what you just said", "save the answer", "save the brief",
             "try again", "same thing", "retry", "do the same", "now try again", "do it again",
             "now try again doing the same thing",
             # Short confirmations for multi-step execution

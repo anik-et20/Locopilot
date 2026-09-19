@@ -193,19 +193,22 @@
         <!-- Input Box Area -->
         <div class="input-container">
           <form id="goalForm" class="goal-form">
-            <textarea 
-              id="goalInput" 
-              class="goal-textarea" 
-              placeholder="State a goal for your workspace (e.g. 'Review my resume and job description, analyze skill gaps, and generate output/tailored_application.md')..." 
-              rows="2"
-            ></textarea>
-            <button type="submit" id="submitGoalBtn" class="submit-btn">
-              <span>Run Agent</span>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="22" y1="2" x2="11" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-              </svg>
-            </button>
+            <div id="attachedFilesContainer" class="attached-files-container"></div>
+            <div class="input-row">
+              <textarea 
+                id="goalInput" 
+                class="goal-textarea" 
+                placeholder="State a goal for your workspace (e.g. 'Review my resume and job description, analyze skill gaps, and generate output/tailored_application.md')..." 
+                rows="2"
+              ></textarea>
+              <button type="submit" id="submitGoalBtn" class="submit-btn">
+                <span>Run Agent</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
           </form>
           <div class="input-subtext">
             <span>Deterministic Sandbox &bull; High-risk operations (create_file, create_folder) strictly require approval.</span>
