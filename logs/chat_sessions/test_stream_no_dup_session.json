@@ -1,0 +1,38 @@
+{
+  "session_id": "test_stream_no_dup_session",
+  "created_at": "2026-09-19T13:08:16.408221+00:00",
+  "updated_at": "2026-09-19T13:09:16.537344+00:00",
+  "title": "What is in Alex_Rivera_Resume.md? Give a shor",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is in Alex_Rivera_Resume.md? Give a short summary.",
+      "timestamp": "2026-09-19T13:08:16.408221+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "The file \"Alex_Rivera_Resume.md\" is not mentioned in the provided context, so there is no available information to summarize its contents. Please provide additional details or the actual content of the resume for a summary.",
+      "timestamp": "2026-09-19T13:08:54.590963+00:00"
+    },
+    {
+      "role": "user",
+      "content": "save the response you gave me as output/test_stream_saved.md",
+      "timestamp": "2026-09-19T13:08:54.597887+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "- Identified the goal to save the response as `output/test_stream_saved.md`.  \n- Attempted to save the prior assistant response to the specified file path.  \n- Noted that the resume file `Alex_Rivera_Resume.md` is not referenced in the context, so no summary of its contents can be provided.",
+      "timestamp": "2026-09-19T13:09:12.683084+00:00"
+    },
+    {
+      "role": "user",
+      "content": "save that response as output/test_stream_saved.pdf",
+      "timestamp": "2026-09-19T13:09:12.700891+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "### ✅ PDF Document Generated & Verified\n\n1. **Converted Source Content:** Successfully compiled document into structured PDF format.\n2. **Target File:** `output/test_stream_saved.pdf`\n3. **Verification Status:** Passed post-action disk verification (valid PDF header, verified non-empty binary payload).\n4. **Accessibility:** The file is immediately available in your local workspace.",
+      "timestamp": "2026-09-19T13:09:16.537344+00:00"
+    }
+  ]
+}

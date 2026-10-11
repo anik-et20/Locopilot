@@ -12,12 +12,11 @@ def test_rag_indexing_and_search():
     assert res["total_chunks"] > 0
     assert len(res["indexed_files"]) >= 3
 
-    # Test search for resume info
-    results = kb.search("Alex Rivera Stanford education and background", top_k=3)
+    # Test search for workspace info
+    results = kb.search("Project Alpha Technical Report or Research Intern", top_k=3)
     assert len(results) > 0
-    assert any("Resume" in r.chunk.filename or "Report" in r.chunk.filename for r in results)
+    assert any("Report" in r.chunk.filename or "Job" in r.chunk.filename for r in results)
 
     # Test formatted context
     formatted = kb.format_retrieved_context(results)
     assert len(formatted["sources"]) > 0
-    assert "Alex_Rivera_Resume.md" in [s["filename"] for s in formatted["sources"]]

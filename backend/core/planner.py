@@ -13,7 +13,7 @@ from .config import settings
 from .llm import ollama_client
 from .tools import find_file_in_goal, TOOL_REGISTRY
 
-logger = logging.getLogger("localgpt.planner")
+logger = logging.getLogger("locopilot.planner")
 
 class PlanStep(BaseModel):
     id: int
@@ -57,7 +57,7 @@ def has_save_intent(goal: str) -> bool:
     return any(re.search(pat, g) for pat in SAVE_INTENT_PATTERNS)
 
 
-PLANNER_SYSTEM_PROMPT = f"""You are LocalGPT Planner, a privacy-first AI agent orchestrator for a personal digital workspace.
+PLANNER_SYSTEM_PROMPT = f"""You are LocoPilot Planner, a privacy-first AI agent orchestrator for a personal digital workspace.
 Your task is to break down the user's goal into a precise, minimal, ordered JSON execution plan.
 
 You have access to EXACTLY 5 deterministic tools:
@@ -308,13 +308,38 @@ Generate the structured JSON plan:"""
                         s.reasoning = f"Read resolved target file {resolved_file}"
                         break
 
-            # Defense-in-depth guardrail: if no explicit save intent, strip create_file / create_folder steps
-            classification_out = plan_data.get("classification", classification)
-            if classification_out in ("QUESTION", "SEARCH", "ANALYSIS") and not has_save_intent(user_goal):
+            # Universal defense-in-depth guardrail: if no explicit save intent, strip create_file / create_folder steps
+            if not has_save_intent(user_goal):
                 validated_steps = [s for s in validated_steps if s.tool not in ("create_file", "create_folder")]
+                if not validated_steps:
+                    if resolved_file:
+                        validated_steps = [
+                            PlanStep(
+                                id=1,
+                                description=f"Read contents of {Path(resolved_file).name}",
+                                tool="read_file",
+                                params={"filepath": resolved_file},
+                                risk_level="LOW",
+                                reasoning=f"Read {resolved_file} to fulfill user request directly in chat.",
+                                expected_output="Document content"
+                            )
+                        ]
+                    else:
+                        validated_steps = [
+                            PlanStep(
+                                id=1,
+                                description="Search personal workspace",
+                                tool="search_documents",
+                                params={"query": user_goal, "top_k": 3},
+                                risk_level="LOW",
+                                reasoning="Retrieve relevant context to answer user request directly in chat.",
+                                expected_output="Context snippets"
+                            )
+                        ]
                 for idx, s in enumerate(validated_steps):
                     s.id = idx + 1
 
+            classification_out = plan_data.get("classification", classification)
             if validated_steps:
                 return ExecutionPlan(
                     goal=user_goal,
@@ -338,8 +363,18 @@ Generate the structured JSON plan:"""
         if save_requested:
             is_pdf = bool(re.search(r'\bpdf\b', user_goal.lower()))
             ext = ".pdf" if is_pdf else ".md"
-            if matched_file:
+            
+            # Check if user specified an explicit output path like output/something.md
+            explicit_out = re.search(r'\b(output/[a-zA-Z0-9_\-\.]+\.(?:md|pdf|txt|json))\b', user_goal, re.IGNORECASE)
+            if explicit_out:
+                dest_filepath = explicit_out.group(1)
+            elif matched_file:
                 true_stem = Path(matched_file).stem
+                dest_filepath = f"output/{true_stem}_output{ext}"
+            else:
+                dest_filepath = f"output/result{ext}"
+
+            if matched_file:
                 return [
                     PlanStep(
                         id=1,
@@ -352,12 +387,12 @@ Generate the structured JSON plan:"""
                     ),
                     PlanStep(
                         id=2,
-                        description="Create output document",
+                        description=f"Create output document at {dest_filepath}",
                         tool="create_file",
-                        params={"filepath": f"output/{true_stem}_output{ext}", "content": ""},
+                        params={"filepath": dest_filepath, "content": ""},
                         risk_level="HIGH",
                         reasoning="Write processed content to workspace",
-                        expected_output=f"Saved {ext} file"
+                        expected_output=f"Saved {dest_filepath}"
                     )
                 ]
             return [
@@ -372,12 +407,12 @@ Generate the structured JSON plan:"""
                 ),
                 PlanStep(
                     id=2,
-                    description="Create output document",
+                    description=f"Create output document at {dest_filepath}",
                     tool="create_file",
-                    params={"filepath": f"output/result{ext}", "content": ""},
+                    params={"filepath": dest_filepath, "content": ""},
                     risk_level="HIGH",
                     reasoning="Write output to workspace",
-                    expected_output=f"Saved {ext} file"
+                    expected_output=f"Saved {dest_filepath}"
                 )
             ]
         else:

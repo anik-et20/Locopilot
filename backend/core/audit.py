@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 from .config import settings
 
-logger = logging.getLogger("localgpt.audit")
+logger = logging.getLogger("locopilot.audit")
 
 class AuditEntry(BaseModel):
     timestamp: str

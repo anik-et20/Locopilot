@@ -1,8 +1,8 @@
-# LocalGPT — Privacy-First AI Agent for Personal Workspaces
+# LocoPilot — Privacy-First AI Agent for Personal Workspaces
 
 > **"Designed to keep AI processing local."**
 
-LocalGPT is a privacy-first AI agent that operates over a user's personal digital workspace. Rather than relying on cloud models or granting an AI unrestricted system access, LocalGPT combines on-device inference, semantic document retrieval (RAG), a strict 5-tool deterministic sandbox, interactive human permission checkpoints for write actions, post-action verification, and an append-only audit trail.
+LocoPilot is a privacy-first AI agent that operates over a user's personal digital workspace. Rather than relying on cloud models or granting an AI unrestricted system access, LocoPilot combines on-device inference, semantic document retrieval (RAG), a strict 5-tool deterministic sandbox, interactive human permission checkpoints for write actions, post-action verification, and an append-only audit trail.
 
 ---
 
@@ -18,7 +18,7 @@ REPORT RESULT + SOURCES → AUDIT LOG
 
 ## 🛠️ The 5 Deterministic Tools Whitelist
 
-LocalGPT never executes arbitrary shell commands or LLM-generated code on the host OS. All actions are strictly whitelisted deterministic Python functions sandboxed inside `/workspace`:
+LocoPilot never executes arbitrary shell commands or LLM-generated code on the host OS. All actions are strictly whitelisted deterministic Python functions sandboxed inside `/workspace`:
 
 | Tool | Risk Level | Description | Behavior |
 | :--- | :--- | :--- | :--- |

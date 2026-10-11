@@ -1,6 +1,6 @@
 """
-LocalGPT FastAPI Application Server
-Provides REST endpoints and SSE streaming for the LocalGPT frontend dashboard.
+LocoPilot FastAPI Application Server
+Provides REST endpoints and SSE streaming for the LocoPilot frontend dashboard.
 """
 import os
 import json
@@ -25,10 +25,10 @@ from .core.chat_history import chat_history_db
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-logger = logging.getLogger("localgpt.api")
+logger = logging.getLogger("locopilot.api")
 
 app = FastAPI(
-    title="LocalGPT API",
+    title="LocoPilot API",
     description="Privacy-first on-device AI Agent with deterministic sandboxing and human permission gates.",
     version=settings.version
 )
@@ -60,7 +60,7 @@ class PermissionDecisionRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Initializing LocalGPT backend...")
+    logger.info("Initializing LocoPilot backend...")
     # Build initial RAG index
     index_res = knowledge_base.build_index()
     logger.info(f"Knowledge index initialized with {index_res.get('total_chunks', 0)} chunks.")

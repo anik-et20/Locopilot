@@ -1,0 +1,1 @@
+The file "Alex_Rivera_Resume.md" is not mentioned in the provided context, so there is no available information to summarize its contents. Please provide additional details or the actual content of the resume for a summary.

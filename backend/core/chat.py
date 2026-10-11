@@ -9,7 +9,7 @@ from .agent_orchestrator import agent_orchestrator
 from .chat_history import chat_history_db
 from .rag import knowledge_base
 
-logger = logging.getLogger("localgpt.chat")
+logger = logging.getLogger("locopilot.chat")
 
 class ChatManager:
     async def process_chat_message(self, message: str, history: List[Dict[str, str]], session_id: Optional[str] = None, attached_files: List[str] = None) -> AsyncGenerator[str, None]:
@@ -100,7 +100,7 @@ class ChatManager:
                 # Build comprehensive grounded system prompt with workspace inventory
                 files_listing = "\n".join(f"- {f}" for f in sorted(workspace_files)) if workspace_files else "None"
                 system_prompt = (
-                    "You are LocalGPT, a privacy-first, on-device AI workspace assistant.\n"
+                    "You are LocoPilot, a privacy-first, on-device AI workspace assistant.\n"
                     "You have direct access to all files in the user's local workspace.\n\n"
                     f"CURRENT WORKSPACE FILES:\n{files_listing}\n\n"
                     "GROUNDING INSTRUCTIONS:\n"

@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from .config import settings
 
-logger = logging.getLogger("localgpt.permission")
+logger = logging.getLogger("locopilot.permission")
 
 class PermissionRequest(BaseModel):
     request_id: str

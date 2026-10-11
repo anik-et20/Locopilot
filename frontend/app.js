@@ -1,5 +1,5 @@
 /**
- * LocalGPT Frontend Application Controller
+ * LocoPilot Frontend Application Controller
  * Handles SSE real-time streaming, session management, file uploads, 
  * interactive permission gates, file browsing, watchdog timers, and visual audit logging.
  */
@@ -196,8 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
           <line x1="12" y1="17" x2="12" y2="21"></line>
         </svg>
       </div>
-      <h2>LocalGPT Workspace Agent</h2>
-      <p>Your on-device, privacy-preserving digital assistant. LocalGPT gathers context from your local documents, plans safe deterministic actions, requests your explicit permission for writes, and verifies every disk change.</p>
+      <h2>LocoPilot Workspace Agent</h2>
+      <p>Your on-device, privacy-preserving digital assistant. LocoPilot gathers context from your local documents, plans safe deterministic actions, requests your explicit permission for writes, and verifies every disk change.</p>
       <div class="hero-features">
         <div class="feat-item">&check; 100% Local Inference (Qwen)</div>
         <div class="feat-item">&check; 5 Whitelisted Deterministic Tools</div>
@@ -290,7 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!isDir) {
         el.draggable = true;
         el.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('application/x-localgpt-file', item.relative_path);
+          e.dataTransfer.setData('application/x-locopilot-file', item.relative_path);
           e.dataTransfer.setData('text/plain', item.name);
           el.classList.add('dragging');
         });
@@ -575,8 +575,12 @@ document.addEventListener('DOMContentLoaded', () => {
               try {
                 const eventData = JSON.parse(rawJson);
                 resetWatchdog(abortController); // Keep the connection alive for every SSE event
-                handlePipelineEvent(eventData, (text) => {
-                  currentAssistantMessage += text;
+                handlePipelineEvent(eventData, (text, isFull) => {
+                  if (isFull) {
+                    currentAssistantMessage = text;
+                  } else {
+                    currentAssistantMessage += text;
+                  }
                 });
               } catch (err) {
                 console.error('Error parsing SSE event:', err, rawJson);
@@ -775,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         appendFinalReportCard(event.final_answer, finalSourcesHtml);
         if (appendTextFn && event.final_answer) {
-          appendTextFn(event.final_answer);
+          appendTextFn(event.final_answer, true);
         }
         fetchAuditLogs();
         break;
@@ -867,7 +871,7 @@ document.addEventListener('DOMContentLoaded', () => {
     card.innerHTML = `
       <div class="event-card-header">
         <div class="event-card-title" style="font-size:1.05rem; color:#a5b4fc;">
-          ✨ LocalGPT Synthesized Workspace Report
+          ✨ LocoPilot Synthesized Workspace Report
         </div>
       </div>
       <div class="final-report-content">${renderMarkdown(markdownText)}</div>
@@ -950,7 +954,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (eventType === 'SESSION_START') {
         summaryText = `Session goal: <em>${escapeHtml(entry.goal || 'General request')}</em>`;
       } else if (eventType === 'SYSTEM_STARTUP') {
-        summaryText = `LocalGPT system initialized`;
+        summaryText = `LocoPilot system initialized`;
       } else {
         summaryText = escapeHtml(entry.action || entry.message || JSON.stringify(entry));
       }
@@ -998,7 +1002,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const url = `/api/audit/export?format=${encodeURIComponent(format)}`;
     const a = document.createElement('a');
     a.href = url;
-    a.download = `localgpt_audit_${Date.now()}.${format}`;
+    a.download = `locopilot_audit_${Date.now()}.${format}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1009,13 +1013,19 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderAttachedFiles() {
     if (!attachedFilesContainer) return;
     attachedFilesContainer.innerHTML = '';
-    attachedFiles.forEach((path, idx) => {
+    if (attachedFiles.length === 0) {
+      attachedFilesContainer.style.display = 'none';
+      return;
+    }
+    attachedFilesContainer.style.display = 'flex';
+    attachedFiles.forEach((file, idx) => {
       const chip = document.createElement('div');
       chip.className = 'attached-file-chip';
-      const name = path.split('/').pop() || path;
+      const fileName = file.split('/').pop().split('\\').pop();
       chip.innerHTML = `
-        <span>📄 ${escapeHtml(name)}</span>
-        <span class="remove-attached-file" title="Remove">&times;</span>
+        <span class="attached-file-icon">📄</span>
+        <span class="attached-file-name" title="${escapeHtml(file)}">${escapeHtml(fileName)}</span>
+        <button type="button" class="remove-attached-file" title="Remove attachment">&times;</button>
       `;
       chip.querySelector('.remove-attached-file').addEventListener('click', () => {
         attachedFiles.splice(idx, 1);
@@ -1027,7 +1037,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   goalForm.addEventListener('dragover', (e) => {
     e.preventDefault();
-    if (e.dataTransfer.types.includes('application/x-localgpt-file')) {
+    if (e.dataTransfer.types.includes('application/x-locopilot-file')) {
       goalForm.classList.add('goal-form--drop-active');
     }
   });
@@ -1038,7 +1048,7 @@ document.addEventListener('DOMContentLoaded', () => {
   goalForm.addEventListener('drop', (e) => {
     e.preventDefault();
     goalForm.classList.remove('goal-form--drop-active');
-    const path = e.dataTransfer.getData('application/x-localgpt-file');
+    const path = e.dataTransfer.getData('application/x-locopilot-file');
     if (path && !attachedFiles.includes(path)) {
       attachedFiles.push(path);
       renderAttachedFiles();

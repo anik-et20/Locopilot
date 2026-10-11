@@ -1,0 +1,28 @@
+{
+  "session_id": "session_1789823744512_nvc9b",
+  "created_at": "2026-09-19T13:19:52.117535+00:00",
+  "updated_at": "2026-09-19T13:24:36.948139+00:00",
+  "title": "summarize this document",
+  "messages": [
+    {
+      "role": "user",
+      "content": "summarize this document",
+      "timestamp": "2026-09-19T13:19:52.117535+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "**Summary of the Document:**\n\nThe document outlines two main problems for a take-home assignment in Applied AI/ML Engineering, focusing on building and evaluating RAG (Retrieval-Augmented Generation) systems and creating a robust evaluation pipeline for LLM outputs.\n\n---\n\n### **Problem 1: Cost-Efficient RAG Application**\n\n**Objective:**  \nDevelop a QA service over a document corpus using a low-cost vector store, with a focus on cost-efficiency, retrieval quality, answer quality, and latency. The system should be capable of ingesting and processing documents (PDF, HTML, MD), embedding chunks, and retrieving relevant information to generate grounded answers.\n\n**Key Requirements:**\n1. **Ingestion:** Support for PDF/HTML/MD formats with configurable chunk size and overlap. Ensure idempotent re-ingestion to avoid duplicate vectors.\n2. **Embedding & Storage:** Embed chunks using a specified model and store vectors along with metadata, including at least one metadata filter.\n3. **Retrieval:** Implement top-k retrieval with a parameter k, and generate answers that cite the relevant chunks. Handle cases where no relevant context is found without hallucination.\n4. **Exposure:** Provide the service via HTTP endpoint or CLI, with configurable settings via environment variables. Log per-query metrics such as latency, chunk count, and token usage.\n\n**Evaluation Metrics:**\n- **Retrieval:** Recall@k, Hit Rate, MRR, nDCG@k, and context precision.\n- **Answer Quality:** Faithfulness, relevance, and optionally EM/F1 if gold answers are available.\n- **Cost & Latency:** Compare monthly costs for 100K, 1M, and 10M vectors against a managed DB. Report p50/p95 retrieval latency and trade-offs accepted.\n\n**Deliverables:**\n- A **runnable RAG service**.\n- An **evaluation harness** and results file (including all three layers: retrieval, answer, and cost).\n- A **cost-comparison table**.\n- A **README** with a discussion on when to switch back to a managed DB and whether retrieval or generation was the weak link.\n\n**Scoring (100 points):**\n- **Correctness & Ingestion (20 pts):** End-to-end functionality, idempotency, and chunking.\n- **Retrieval Evaluation (20 pts):** Accurate computation of IR metrics.\n- **Answer Evaluation (20 pts):** Faithfulness and relevance, not just assertion.\n- **Cost Analysis (20 pts):** Credible comparison with assumptions.\n- **Engineering & Clarity (20 pts):** Structure, configuration hygiene, README, and git history.\n\n---\n\n### **Problem 2: LLM-as-Judge Evaluation Pipeline**\n\n**Objective:**  \nBuild a pipeline that uses an LLM as a judge to evaluate the quality of model outputs, while addressing and mitigating judge biases.\n\n**Key Requirements:**\n1. **Judging Modes:** Implement at least one of the following: pointwise scoring, pairwise A-vs-B, reference-based, or reference-free.\n2. **Test Suite Input:** Accept test cases in JSON/YAML format, and generate structured prompts for the judge.\n3. **Rubric Definition:** Define an explicit rubric (e.g., correctness, faithfulness, completeness, instruction-following, tone, safety) rather than just numerical scores.\n4. **Aggregation & Reporting:** Generate per-case and suite-level reports (pass rate, mean scores, win rate), and support comparisons between two configurations (e.g., prompt v1 vs v2 or model A vs B).\n5. **Logging & Auditing:** Log all judge prompts and raw responses for replayability. Track tokens and calls for the judge and generator. Allow independent configuration of the judge and generator.\n\n**Bias Handling:**\n- **Position (A/B Order):** Run each pair in both orders and average or require agreement. Report the flip rate.\n- **Verbosity / Length:** Control for answer length by using padded answers and penalizing unsupported lengths.\n\n---\n\n### **Conclusion:**\nThe document presents two distinct but complementary challenges:\n1. **Building a cost-efficient RAG system** with rigorous evaluation of retrieval, answer quality, and cost.\n2. **Creating a robust evaluation pipeline** for LLM outputs, with a focus on detecting and mitigating judge biases.\n\nBoth problems emphasize **engineering rigor**, **evaluation depth**, and **practical implementation** of AI/ML systems.",
+      "timestamp": "2026-09-19T13:23:42.983758+00:00"
+    },
+    {
+      "role": "user",
+      "content": "give me a pdf of the summary you have generated",
+      "timestamp": "2026-09-19T13:24:16.283304+00:00"
+    },
+    {
+      "role": "assistant",
+      "content": "### ✅ PDF Document Generated & Verified\n\n1. **Converted Source Content:** Successfully compiled document into structured PDF format.\n2. **Target File:** `output/saved_response.pdf`\n3. **Verification Status:** Passed post-action disk verification (valid PDF header, verified non-empty binary payload).\n4. **Accessibility:** The file is immediately available in your local workspace.",
+      "timestamp": "2026-09-19T13:24:36.948139+00:00"
+    }
+  ]
+}

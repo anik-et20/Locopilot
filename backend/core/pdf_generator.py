@@ -1,5 +1,5 @@
 """
-PDF Generation Engine for LocalGPT
+PDF Generation Engine for LocoPilot
 Converts Markdown / Structured Text into professional, beautifully styled binary PDF documents using ReportLab.
 100% on-device, zero external network calls.
 """

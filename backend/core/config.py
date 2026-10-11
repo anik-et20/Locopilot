@@ -1,6 +1,6 @@
 """
-LocalGPT Configuration
-Centralized configuration for LocalGPT backend services.
+LocoPilot Configuration
+Centralized configuration for LocoPilot backend services.
 """
 import os
 from pathlib import Path
@@ -16,7 +16,7 @@ WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 class Settings(BaseModel):
-    app_name: str = "LocalGPT"
+    app_name: str = "LocoPilot"
     version: str = "1.0.0"
     workspace_dir: Path = WORKSPACE_DIR
     logs_dir: Path = LOGS_DIR

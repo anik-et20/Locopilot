@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from .config import settings
 
-logger = logging.getLogger("localgpt.rag")
+logger = logging.getLogger("locopilot.rag")
 
 class DocumentChunk(BaseModel):
     chunk_id: str

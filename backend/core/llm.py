@@ -8,7 +8,7 @@ from typing import AsyncGenerator, Dict, Any, Optional
 import httpx
 from .config import settings
 
-logger = logging.getLogger("localgpt.llm")
+logger = logging.getLogger("locopilot.llm")
 
 class OllamaClient:
     def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None):
