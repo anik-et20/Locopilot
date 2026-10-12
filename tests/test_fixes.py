@@ -27,11 +27,12 @@ def is_server_online():
         return False
 
 def get_test_client():
-    """Returns a fresh HTTP client targeting live server on 8000 if active, or in-process ASGITransport."""
+    """Returns a fresh HTTP client targeting live server on 8000 if active, or Starlette TestClient."""
     if is_server_online():
         return httpx.Client(base_url="http://127.0.0.1:8000", timeout=5.0)
+    from starlette.testclient import TestClient
     from backend.app import app
-    return httpx.Client(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    return TestClient(app)
 
 
 class TestLocalPilotFixes(unittest.TestCase):
