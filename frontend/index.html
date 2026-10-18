@@ -1,244 +1,387 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff">
   <title>LocoPilot — Privacy-First AI Agent for Personal Workspaces</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css?v=1.1.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f7b75'/%3E%3Cg transform='translate(5 5) scale(.917)' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3'/%3E%3C/g%3E%3C/svg%3E">
+  <script>
+    /* Apply the saved theme before first paint (no flash). Falls back to the OS preference. */
+    (function () {
+      var t = 'light';
+      try {
+        var saved = localStorage.getItem('locopilot-theme');
+        if (saved === 'light' || saved === 'dark') t = saved;
+        else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
+      } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/styles.css?v=3.0.0">
 </head>
 <body>
-  <div class="app-layout">
-    <!-- Top Navigation Bar -->
+  <!-- Icon sprite (stroke icons, 24px grid) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+      <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-eraser" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+      <symbol id="i-enter" viewBox="0 0 24 24"><path d="m9 10-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></symbol>
+      <symbol id="i-cpu" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-14.93 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></symbol>
+      <symbol id="i-panel-open" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></symbol>
+      <symbol id="i-drive" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01M10 16h.01"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/></symbol>
+      <symbol id="i-file-search" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="M13.3 16.3 15 18"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+      <symbol id="i-file-in" viewBox="0 0 24 24"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M2 15h10"/><path d="m9 18 3-3-3-3"/></symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+      <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-circle-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
+      <symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app-layout" id="appLayout">
+
+    <!-- Top bar -->
     <header class="top-nav">
       <div class="nav-brand">
-        <div class="logo-shield">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            <path d="M9 12l2 2 4-4"/>
-          </svg>
-        </div>
-        <div class="brand-titles">
-          <h1>LocoPilot</h1>
-        </div>
+        <button class="icon-btn nav-toggle" id="sidebarToggleBtn" type="button" title="Show sessions and workspace files" aria-label="Show sessions and workspace files" aria-controls="sidebarPanel" aria-expanded="false">
+          <svg class="i"><use href="#i-menu"/></svg>
+        </button>
+        <div class="logo-shield" aria-hidden="true"><svg class="i"><use href="#i-command"/></svg></div>
+        <span class="brand-name">LocoPilot</span>
+        <span class="brand-sep" aria-hidden="true">/</span>
+        <span class="brand-sub">Local agent workspace</span>
       </div>
 
       <div class="nav-status-group">
         <div class="status-pill status-privacy" title="All operations run on your local machine">
           <span class="pulse-dot green"></span>
-          <span class="status-label">100% On-Device</span>
+          <span class="status-label">On-device</span>
         </div>
-        <div class="status-pill" id="ollamaStatusPill">
-          <span class="pulse-dot blue"></span>
+        <div class="status-pill model-pill" id="ollamaStatusPill" title="Local model">
+          <svg class="i"><use href="#i-cpu"/></svg>
           <span id="ollamaModelName">Qwen 3 (8B)</span>
         </div>
-        <button class="nav-btn btn-primary-nav" id="newChatBtn" title="Start a New Chat Session">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          New Chat
-        </button>
-        <button class="nav-btn" id="clearChatBtn" title="Clear Current Chat History" style="color: #fb7185; border-color: rgba(244, 63, 94, 0.4);">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-          Clear
-        </button>
+        <span class="nav-divider" aria-hidden="true"></span>
         <button class="nav-btn" id="auditToggleBtn" title="Open Append-Only Audit Trail">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="16" y1="13" x2="8" y2="13"/>
-            <line x1="16" y1="17" x2="8" y2="17"/>
-            <polyline points="10 9 9 9 8 9"/>
-          </svg>
-          Audit Log
+          <svg class="i"><use href="#i-list"/></svg>
+          <span class="btn-label">Audit Log</span>
         </button>
+        <div class="theme-toggle" role="group" aria-label="Color theme">
+          <button type="button" id="themeLightBtn" title="Light theme" aria-label="Light theme" aria-pressed="true"><svg class="i"><use href="#i-sun"/></svg></button>
+          <button type="button" id="themeDarkBtn" title="Dark theme" aria-label="Dark theme" aria-pressed="false"><svg class="i"><use href="#i-moon"/></svg></button>
+        </div>
       </div>
     </header>
 
-    <!-- Visual Architecture / Stage Ribbon -->
+    <!-- Left sidebar -->
+    <aside class="sidebar-panel" id="sidebarPanel" aria-label="Workspace">
+      <div class="side-head">
+        <svg class="i"><use href="#i-folder-open"/></svg>
+        <span>Workspace</span>
+      </div>
+
+      <div class="side-actions">
+        <button class="side-btn side-btn-primary" id="newChatBtn" title="Start a New Chat Session">
+          <svg class="i"><use href="#i-plus"/></svg><span>New Chat</span>
+        </button>
+        <button class="side-btn" id="sidebarSearchBtn" type="button" title="Search sessions and files" aria-expanded="false" aria-controls="sidebarSearchRow">
+          <svg class="i"><use href="#i-search"/></svg><span>Search</span>
+        </button>
+      </div>
+      <div class="side-search" id="sidebarSearchRow" hidden>
+        <input type="search" id="sidebarSearchInput" placeholder="Search sessions and files" aria-label="Search sessions and files" autocomplete="off">
+      </div>
+
+      <div class="side-scroll">
+        <section class="side-section sessions-section" id="sectionSessions">
+          <div class="side-section-head">
+            <button class="side-section-toggle" type="button" aria-expanded="true" aria-controls="sessionsBody">
+              <svg class="i chev"><use href="#i-chevron"/></svg><span>Past sessions</span>
+            </button>
+            <span class="side-count" id="sessionsCountBadge">0</span>
+          </div>
+          <div class="side-section-body" id="sessionsBody">
+            <div class="sessions-list" id="sessionsListContainer">
+              <div class="loading-state">Loading past sessions...</div>
+            </div>
+            <button class="view-all-link" id="viewAllSessionsBtn" type="button" hidden>
+              <span>View all sessions</span><svg class="i"><use href="#i-arrow-right"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <section class="side-section" id="sectionFiles">
+          <div class="side-section-head">
+            <button class="side-section-toggle" type="button" aria-expanded="true" aria-controls="filesBody">
+              <svg class="i chev"><use href="#i-chevron"/></svg><span>Workspace files</span>
+            </button>
+            <button class="icon-btn" id="refreshFilesBtn" title="Refresh workspace files" aria-label="Refresh workspace files">
+              <svg class="i"><use href="#i-refresh"/></svg>
+            </button>
+          </div>
+          <div class="side-section-body" id="filesBody">
+            <div class="workspace-file-tree" id="workspaceFileList">
+              <div class="loading-state">Loading workspace documents...</div>
+            </div>
+            <div class="loading-state" id="sidebarSearchEmpty" hidden>No matching sessions or files</div>
+          </div>
+        </section>
+
+        <section class="side-section" id="sectionUploads">
+          <div class="side-section-head">
+            <button class="side-section-toggle" type="button" aria-expanded="true" aria-controls="uploadsBody">
+              <svg class="i chev"><use href="#i-chevron"/></svg><span>Uploads</span>
+            </button>
+            <span class="side-head-right">
+              <span class="side-count" id="uploadsCountBadge" title="Files uploaded in this browser session">0</span>
+              <button class="icon-btn" id="uploadAddBtn" type="button" title="Upload local files to workspace" aria-label="Upload local files to workspace">
+                <svg class="i"><use href="#i-plus"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="side-section-body" id="uploadsBody">
+            <button class="dropzone" id="uploadFilesBtn" type="button" title="Upload local files to workspace">
+              <span class="dz-main"><svg class="i"><use href="#i-upload"/></svg><span>Drop files or browse</span></span>
+              <span class="dz-sub">Files stay on this device</span>
+            </button>
+            <input type="file" id="workspaceFileInput" multiple style="display: none;" />
+          </div>
+        </section>
+
+        <section class="side-section collapsed" id="sectionSideScenarios">
+          <div class="side-section-head">
+            <button class="side-section-toggle" type="button" aria-expanded="false" aria-controls="sideScenariosBody">
+              <svg class="i chev"><use href="#i-chevron"/></svg><span>Scenarios</span>
+            </button>
+            <span class="side-count">3</span>
+          </div>
+          <div class="side-section-body" id="sideScenariosBody">
+            <div class="side-list">
+              <button class="side-item" type="button" data-scenario-proxy="demoPreset1"><svg class="i"><use href="#i-file-search"/></svg><span>Resume gap analysis</span></button>
+              <button class="side-item" type="button" data-scenario-proxy="demoPreset2"><svg class="i"><use href="#i-copy"/></svg><span>Analyze technical report</span></button>
+              <button class="side-item" type="button" data-scenario-proxy="demoPreset3"><svg class="i"><use href="#i-search"/></svg><span>Search the workspace</span></button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="side-foot">
+        <svg class="i"><use href="#i-shield"/></svg>
+        <span>Local files. Local inference.</span>
+      </div>
+    </aside>
+
+    <!-- Pipeline stages -->
     <div class="stage-ribbon-wrapper">
-      <div class="stage-ribbon" id="stageRibbon">
-        <div class="stage-node active" data-stage="understand">
+      <div class="stage-ribbon" id="stageRibbon" role="list" aria-label="Agent pipeline stages">
+        <div class="stage-node active" data-stage="understand" role="listitem">
           <div class="stage-icon">1</div>
           <div class="stage-text">Understand</div>
         </div>
-        <div class="stage-arrow">&rarr;</div>
-        <div class="stage-node" data-stage="rag">
+        <div class="stage-arrow" aria-hidden="true">&rarr;</div>
+        <div class="stage-node" data-stage="rag" role="listitem">
           <div class="stage-icon">2</div>
-          <div class="stage-text">Search Local RAG</div>
+          <div class="stage-text">Search files</div>
         </div>
-        <div class="stage-arrow">&rarr;</div>
-        <div class="stage-node" data-stage="plan">
+        <div class="stage-arrow" aria-hidden="true">&rarr;</div>
+        <div class="stage-node" data-stage="plan" role="listitem">
           <div class="stage-icon">3</div>
-          <div class="stage-text">Structured Plan</div>
+          <div class="stage-text">Plan</div>
         </div>
-        <div class="stage-arrow">&rarr;</div>
-        <div class="stage-node" data-stage="permission">
+        <div class="stage-arrow" aria-hidden="true">&rarr;</div>
+        <div class="stage-node" data-stage="permission" role="listitem">
           <div class="stage-icon">4</div>
-          <div class="stage-text">Permission Check</div>
+          <div class="stage-text">Your approval</div>
         </div>
-        <div class="stage-arrow">&rarr;</div>
-        <div class="stage-node" data-stage="execute">
+        <div class="stage-arrow" aria-hidden="true">&rarr;</div>
+        <div class="stage-node" data-stage="execute" role="listitem">
           <div class="stage-icon">5</div>
-          <div class="stage-text">Deterministic Exec</div>
+          <div class="stage-text">Run</div>
         </div>
-        <div class="stage-arrow">&rarr;</div>
-        <div class="stage-node" data-stage="verify">
+        <div class="stage-arrow" aria-hidden="true">&rarr;</div>
+        <div class="stage-node" data-stage="verify" role="listitem">
           <div class="stage-icon">6</div>
-          <div class="stage-text">Verify Result</div>
+          <div class="stage-text">Verify</div>
         </div>
-        <div class="stage-arrow">&rarr;</div>
-        <div class="stage-node" data-stage="audit">
+        <div class="stage-arrow" aria-hidden="true">&rarr;</div>
+        <div class="stage-node" data-stage="audit" role="listitem">
           <div class="stage-icon">7</div>
-          <div class="stage-text">Audit Trail</div>
+          <div class="stage-text">Log</div>
         </div>
       </div>
     </div>
 
-    <!-- Main Content Area (Sidebar + Execution Stream) -->
-    <main class="main-container">
-      <!-- Left Sidebar Panel -->
-      <aside class="sidebar-panel">
-        <!-- Chat Sessions History Section -->
-        <div class="panel-section sessions-section">
-          <div class="section-header">
-            <h3>Past Sessions</h3>
-            <span class="badge-sub" id="sessionsCountBadge">0 sessions</span>
-          </div>
-          <div class="sessions-list" id="sessionsListContainer">
-            <div class="loading-state">Loading past sessions...</div>
+    <!-- Conversation -->
+    <main class="feed-panel" id="mainContainer">
+      <div class="conv-head">
+        <h2 class="conv-title" id="sessionTitle">New chat</h2>
+        <div class="conv-head-right">
+          <span class="conv-saved" id="sessionSavedLabel"></span>
+          <button class="text-btn" id="clearChatBtn" title="Clear Current Chat History">
+            <svg class="i"><use href="#i-eraser"/></svg><span>Clear</span>
+          </button>
+          <button class="icon-btn ctx-toggle" id="contextToggleBtn" type="button" title="Show session context" aria-label="Show session context" aria-controls="contextPanel" aria-expanded="true">
+            <svg class="i"><use href="#i-panel-open"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="feed-scroll-container" id="feedContainer">
+        <div class="welcome-hero" id="welcomeHero">
+          <h2>What should LocoPilot do in your workspace?</h2>
+          <p>Describe a goal. LocoPilot reads your local files, shows its plan, and asks before it writes anything.</p>
+          <div class="hero-features">
+            <div class="feat-item"><strong>Runs on your machine</strong><span>Inference happens locally through Ollama.</span></div>
+            <div class="feat-item"><strong>Five fixed tools</strong><span>No shell access and no generated code. It can list, read, search, create a file and create a folder.</span></div>
+            <div class="feat-item"><strong>You approve every write</strong><span>Creating a file or folder always waits for your decision.</span></div>
+            <div class="feat-item"><strong>Verified and logged</strong><span>Each change is checked on disk and recorded in the audit log.</span></div>
           </div>
         </div>
+      </div>
 
-        <!-- Personal Workspace Files Section -->
-        <div class="panel-section">
-          <div class="section-header">
-            <h3>Personal Workspace</h3>
-            <div class="section-header-actions">
-              <button class="icon-btn-sm" id="uploadFilesBtn" title="Upload local files to workspace">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-                <span>Upload</span>
-              </button>
-              <input type="file" id="workspaceFileInput" multiple style="display: none;" />
-              <button class="icon-btn" id="refreshFilesBtn" title="Refresh workspace files">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-                </svg>
-              </button>
+      <div class="input-container">
+        <form id="goalForm" class="goal-form">
+          <div id="attachedFilesContainer" class="attached-files-container"></div>
+          <textarea
+            id="goalInput"
+            class="goal-textarea"
+            placeholder="Describe a goal, e.g. Summarize my Q3 notes into output/summary.md"
+            aria-label="Goal for the agent"
+            rows="2"
+          ></textarea>
+          <div class="composer-bar">
+            <div class="composer-left">
+              <div class="attach-wrap">
+                <button type="button" class="text-btn" id="attachBtn" aria-haspopup="true" aria-expanded="false" aria-controls="attachMenu" title="Attach a workspace file to this goal">
+                  <svg class="i"><use href="#i-paperclip"/></svg><span>Attach</span>
+                </button>
+                <div class="attach-menu" id="attachMenu" role="menu" hidden></div>
+              </div>
+              <span class="composer-context">Workspace context</span>
             </div>
-          </div>
-          <div class="workspace-file-tree" id="workspaceFileList">
-            <div class="loading-state">Loading workspace documents...</div>
-          </div>
-        </div>
-
-        <div class="panel-section demo-presets-section">
-          <div class="section-header">
-            <h3>Demo Scenarios</h3>
-            <span class="badge-sub">1-Click Live Tests</span>
-          </div>
-          <div class="preset-cards">
-            <button class="preset-card" id="demoPreset1">
-              <div class="preset-tag">FEATURED DEMO WORKFLOW</div>
-              <div class="preset-title">Resume Gap Analysis & Tailored Application</div>
-              <div class="preset-desc">Inspects resume + JD, analyzes skill gaps, prompts user permission, and creates verified application.md</div>
-            </button>
-            <button class="preset-card" id="demoPreset2">
-              <div class="preset-tag">AGENT SAFETY & VERIFICATION</div>
-              <div class="preset-title">Analyze Technical Report & Learnings</div>
-              <div class="preset-desc">Synthesizes key architectural findings on post-action verification and deterministic 5-tool sandboxes.</div>
-            </button>
-            <button class="preset-card" id="demoPreset3">
-              <div class="preset-tag">LOCAL RAG SEARCH</div>
-              <div class="preset-title">Direct Workspace Knowledge Query</div>
-              <div class="preset-desc">Retrieves specific benchmarks and citations from indexed personal files with exact chunk provenance.</div>
+            <button type="submit" id="submitGoalBtn" class="submit-btn">
+              <svg class="i"><use href="#i-play"/></svg>
+              <span class="submit-label">Run Agent</span>
+              <span class="submit-kbd" aria-hidden="true"><svg class="i"><use href="#i-command"/></svg><svg class="i"><use href="#i-enter"/></svg></span>
             </button>
           </div>
-        </div>
-      </aside>
-
-      <!-- Center / Right Execution Feed & Chat -->
-      <section class="feed-panel">
-        <!-- Interactive Feed Stream -->
-        <div class="feed-scroll-container" id="feedContainer">
-          <div class="welcome-hero" id="welcomeHero">
-            <div class="hero-icon">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                <line x1="8" y1="21" x2="16" y2="21"></line>
-                <line x1="12" y1="17" x2="12" y2="21"></line>
-              </svg>
-            </div>
-            <h2>LocoPilot Workspace Agent</h2>
-            <p>Your on-device, privacy-preserving digital assistant. LocoPilot gathers context from your local documents, plans safe deterministic actions, requests your explicit permission for writes, and verifies every disk change.</p>
-            <div class="hero-features">
-              <div class="feat-item">&check; 100% Local Inference (Qwen)</div>
-              <div class="feat-item">&check; 5 Whitelisted Deterministic Tools</div>
-              <div class="feat-item">&check; Human Permission Checkpoint</div>
-              <div class="feat-item">&check; Post-Action Verification</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Input Box Area -->
-        <div class="input-container">
-          <form id="goalForm" class="goal-form">
-            <div id="attachedFilesContainer" class="attached-files-container"></div>
-            <div class="input-row">
-              <textarea 
-                id="goalInput" 
-                class="goal-textarea" 
-                placeholder="State a goal for your workspace (e.g. 'Review my resume and job description, analyze skill gaps, and generate output/tailored_application.md')..." 
-                rows="2"
-              ></textarea>
-              <button type="submit" id="submitGoalBtn" class="submit-btn">
-                <span>Run Agent</span>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="22" y1="2" x2="11" y2="13"></line>
-                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                </svg>
-              </button>
-            </div>
-          </form>
-          <div class="input-subtext">
-            <span>Deterministic Sandbox &bull; High-risk operations (create_file, create_folder) strictly require approval.</span>
-          </div>
-        </div>
-      </section>
+        </form>
+        <div class="input-subtext">Writes always need your approval. Enter runs &middot; Shift+Enter adds a line.</div>
+      </div>
     </main>
 
-    <!-- Slide-over Audit Log Drawer -->
+    <!-- Right panel -->
+    <aside class="context-panel" id="contextPanel" aria-label="Session context">
+      <div class="ctx-head">
+        <h2>Session context</h2>
+        <button class="icon-btn" id="closeContextBtn" type="button" title="Hide session context" aria-label="Hide session context">
+          <svg class="i"><use href="#i-panel"/></svg>
+        </button>
+      </div>
+      <div class="ctx-scroll">
+        <section class="side-section" id="ctxScenarios">
+          <div class="side-section-head">
+            <button class="side-section-toggle" type="button" aria-expanded="true" aria-controls="ctxScenariosBody">
+              <svg class="i chev"><use href="#i-chevron"/></svg><span>Scenarios</span>
+            </button>
+            <span class="side-count">3</span>
+          </div>
+          <div class="side-section-body" id="ctxScenariosBody">
+            <div class="side-list scenario-list">
+              <button class="side-item scenario-item" id="demoPreset1" type="button"
+                data-title="Resume gap analysis"
+                data-desc="Reads a resume and job description, finds skill gaps, then asks before writing the application file."
+                data-path="output/tailored_application.md">
+                <svg class="i"><use href="#i-file-search"/></svg><span>Resume gap analysis</span>
+              </button>
+              <button class="side-item scenario-item" id="demoPreset2" type="button"
+                data-title="Analyze technical report"
+                data-desc="Summarizes the findings on post-action verification and deterministic tool sandboxes."
+                data-path="">
+                <svg class="i"><use href="#i-copy"/></svg><span>Analyze technical report</span>
+              </button>
+              <button class="side-item scenario-item" id="demoPreset3" type="button"
+                data-title="Search the workspace"
+                data-desc="Finds mentions of Stanford, inference benchmarks and tool safety, with the source file for each."
+                data-path="">
+                <svg class="i"><use href="#i-search"/></svg><span>Search the workspace</span>
+              </button>
+            </div>
+            <div class="scenario-detail" id="scenarioDetail" hidden>
+              <p class="scenario-desc" id="scenarioDesc"></p>
+              <div class="meta-label">Output path</div>
+              <code class="scenario-path" id="scenarioPath"></code>
+            </div>
+          </div>
+        </section>
+
+        <section class="side-section" id="ctxLatestRun">
+          <div class="side-section-head">
+            <button class="side-section-toggle" type="button" aria-expanded="true" aria-controls="latestRunBody">
+              <svg class="i chev"><use href="#i-chevron"/></svg><span>Latest run</span>
+            </button>
+          </div>
+          <div class="side-section-body" id="latestRunBody">
+            <div class="ctx-empty">No runs yet. Run a goal or pick a scenario and the result appears here.</div>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <!-- Status bar -->
+    <footer class="status-bar">
+      <div class="status-left">
+        <span class="status-item" id="statusWorkspace"><svg class="i"><use href="#i-drive"/></svg><span>Workspace connected</span></span>
+        <span class="status-item status-sep" id="statusSaved">All changes saved</span>
+      </div>
+      <div class="status-right">
+        <span class="status-item" id="statusApproval">Approval required for writes</span>
+        <span class="status-item status-sep status-agent" id="statusAgent" data-state="ready">Agent ready</span>
+      </div>
+    </footer>
+
+    <!-- Audit log drawer -->
     <div class="audit-drawer" id="auditDrawer">
       <div class="audit-header">
         <div class="audit-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
-          <h3>Append-Only Audit Trail</h3>
+          <svg class="i"><use href="#i-list"/></svg>
+          <h3>Audit log</h3>
           <span class="badge-tag">logs/audit_log.jsonl</span>
         </div>
-        <button class="icon-btn" id="closeAuditBtn">&times;</button>
+        <button class="icon-btn" id="closeAuditBtn" title="Close audit log" aria-label="Close audit log">
+          <svg class="i"><use href="#i-x"/></svg>
+        </button>
       </div>
       <div class="audit-controls">
-        <input type="text" id="auditFilterInput" class="audit-search" placeholder="Filter audit events (e.g. TOOL, PERMISSION)...">
+        <input type="text" id="auditFilterInput" class="audit-search" placeholder="Filter events, e.g. TOOL or PERMISSION" aria-label="Filter audit events">
         <button class="btn-secondary-sm" id="refreshAuditBtn" title="Refresh records">Refresh</button>
         <button class="btn-secondary-sm btn-export" id="exportAuditCsvBtn" title="Export audit trail as CSV">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
+          <svg class="i"><use href="#i-download"/></svg>
           CSV
         </button>
       </div>
@@ -247,15 +390,17 @@
       </div>
     </div>
 
-    <!-- File Viewer Modal -->
+    <!-- File viewer -->
     <div class="modal-backdrop" id="fileModal" style="display: none;">
-      <div class="modal-card">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalFileName">
         <div class="modal-header">
           <div class="modal-title-group">
-            <h3 id="modalFileName">Document Viewer</h3>
+            <h3 id="modalFileName">Document viewer</h3>
             <span class="badge-sub" id="modalFilePath">path/to/file</span>
           </div>
-          <button class="icon-btn" id="closeModalBtn">&times;</button>
+          <button class="icon-btn" id="closeModalBtn" title="Close" aria-label="Close file viewer">
+            <svg class="i"><use href="#i-x"/></svg>
+          </button>
         </div>
         <div class="modal-body">
           <pre class="file-content-view" id="modalFileContent"></pre>
@@ -263,9 +408,10 @@
       </div>
     </div>
 
+    <div class="scrim" id="layoutScrim" aria-hidden="true"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="/static/app.js?v=1.0.9"></script>
+  <script src="/static/app.js?v=3.0.0"></script>
 </body>
 </html>

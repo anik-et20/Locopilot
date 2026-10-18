@@ -45,6 +45,64 @@ document.addEventListener('DOMContentLoaded', () => {
   const demoPreset2 = document.getElementById('demoPreset2');
   const demoPreset3 = document.getElementById('demoPreset3');
 
+  // Inline icons (presentation only)
+  const svg = (size, body, extra = '') =>
+    `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${body}</svg>`;
+  const ICON = {
+    folder: svg(15, '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+    folderOpen: svg(15, '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>'),
+    file: svg(15, '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'),
+    fileSm: svg(13, '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'),
+    pdf: svg(15, '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>'),
+    check: svg(14, '<polyline points="20 6 9 17 4 12"/>'),
+    x: svg(14, '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+    shield: svg(16, '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>'),
+    alert: svg(18, '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+    report: svg(15, '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>')
+  };
+
+  // Sprite icon helper (the icon sprite lives in index.html)
+  const sp = (name, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+
+  // UI-shell elements (layout, search, context panel, status bar)
+  const appLayout = document.getElementById('appLayout');
+  const sidebarPanel = document.getElementById('sidebarPanel');
+  const contextPanel = document.getElementById('contextPanel');
+  const sessionTitleEl = document.getElementById('sessionTitle');
+  const sessionSavedLabel = document.getElementById('sessionSavedLabel');
+  const sidebarSearchBtn = document.getElementById('sidebarSearchBtn');
+  const sidebarSearchRow = document.getElementById('sidebarSearchRow');
+  const sidebarSearchInput = document.getElementById('sidebarSearchInput');
+  const sidebarSearchEmpty = document.getElementById('sidebarSearchEmpty');
+  const viewAllSessionsBtn = document.getElementById('viewAllSessionsBtn');
+  const uploadsCountBadge = document.getElementById('uploadsCountBadge');
+  const uploadAddBtn = document.getElementById('uploadAddBtn');
+  const attachBtn = document.getElementById('attachBtn');
+  const attachMenu = document.getElementById('attachMenu');
+  const latestRunBody = document.getElementById('latestRunBody');
+  const scenarioDetail = document.getElementById('scenarioDetail');
+  const scenarioDesc = document.getElementById('scenarioDesc');
+  const scenarioPath = document.getElementById('scenarioPath');
+  const statusWorkspace = document.getElementById('statusWorkspace');
+  const statusSaved = document.getElementById('statusSaved');
+  const statusAgent = document.getElementById('statusAgent');
+  const SESSION_PREVIEW_LIMIT = 5;
+  const DROPZONE_HTML = `
+    <span class="dz-main">${sp('upload')}<span>Drop files or browse</span></span>
+    <span class="dz-sub">Files stay on this device</span>
+  `;
+
+  // UI-shell state (presentation only)
+  let uploadedCount = 0;          // files uploaded in this browser session
+  let showAllSessions = false;
+  let workspaceFilesFlat = [];    // non-folder workspace files, for the Attach menu
+  let treeGeneration = 0;         // guards async folder loads against refreshes
+  let agentHealth = 'unknown';    // 'ready' | 'offline' | 'unknown'
+  let agentHealthLabel = 'Checking agent';
+  let isRunning = false;
+  let latestRun = null;           // summary of the most recent run, built from stream events
+  let sessionTitleHint = '';
+
   // State
   let currentSessionId = generateSessionId();
   let chatHistory = [];
@@ -88,13 +146,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderSessionsList(sessions) {
     if (!sessionsListContainer) return;
-    
+
     if (sessionsCountBadge) {
-      sessionsCountBadge.textContent = `${sessions.length} session${sessions.length === 1 ? '' : 's'}`;
+      sessionsCountBadge.textContent = String(sessions.length);
     }
 
     if (!sessions.length) {
-      sessionsListContainer.innerHTML = `<div class="loading-state" style="padding:10px;">No saved sessions yet</div>`;
+      sessionsListContainer.innerHTML = `<div class="loading-state">No saved sessions yet</div>`;
+      updateViewAllLink(0);
+      updateSessionHeader();
+      applySidebarFilter();
       return;
     }
 
@@ -106,18 +167,18 @@ document.addEventListener('DOMContentLoaded', () => {
       item.id = `session-card-${sess.id}`;
 
       const previewText = sess.preview || 'Empty session';
-      const timeStr = formatTimestamp(sess.updated_at || sess.created_at);
+      const timeStr = formatRelative(sess.updated_at || sess.created_at);
+      item.dataset.search = previewText.toLowerCase();
+      item.title = `${sess.message_count || 0} msgs`;
 
       item.innerHTML = `
         <div class="session-item-left">
+          ${sp('message')}
           <div class="session-item-preview" title="${escapeHtml(previewText)}">${escapeHtml(previewText)}</div>
-          <div class="session-item-time">${timeStr} &bull; ${sess.message_count || 0} msgs</div>
         </div>
-        <button class="session-delete-btn" title="Delete Session" data-session-id="${sess.id}">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
+        <div class="session-item-time">${timeStr}</div>
+        <button class="session-delete-btn" title="Delete Session" aria-label="Delete session" data-session-id="${sess.id}">
+          ${sp('x')}
         </button>
       `;
 
@@ -134,11 +195,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
       sessionsListContainer.appendChild(item);
     });
+
+    updateViewAllLink(sessions.length);
+    updateSessionHeader();
+    applySidebarFilter();
   }
 
   async function loadSession(sessionId) {
     try {
       currentSessionId = sessionId;
+      sessionTitleHint = '';
+      resetLatestRun();
+      selectScenario(null);
       const res = await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`);
       if (res.ok) {
         const data = await res.json();
@@ -151,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
           feedContainer.innerHTML = WELCOME_HERO_HTML;
         } else {
           chatHistory.forEach(msg => {
-            appendChatBubble(msg.role, msg.content);
+            appendChatBubble(msg.role, msg.content, msg.timestamp);
           });
         }
         renderSessionsList(allSessions);
@@ -183,26 +251,23 @@ document.addEventListener('DOMContentLoaded', () => {
     removeThinkingIndicator();
     feedContainer.innerHTML = WELCOME_HERO_HTML;
     resetStages();
+    sessionTitleHint = '';
+    resetLatestRun();
+    selectScenario(null);
+    updateSessionHeader();
     fetchSessions();
     console.log('Started new chat session:', currentSessionId);
   }
 
   const WELCOME_HERO_HTML = `
     <div class="welcome-hero" id="welcomeHero">
-      <div class="hero-icon">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-          <line x1="8" y1="21" x2="16" y2="21"></line>
-          <line x1="12" y1="17" x2="12" y2="21"></line>
-        </svg>
-      </div>
-      <h2>LocoPilot Workspace Agent</h2>
-      <p>Your on-device, privacy-preserving digital assistant. LocoPilot gathers context from your local documents, plans safe deterministic actions, requests your explicit permission for writes, and verifies every disk change.</p>
+      <h2>What should LocoPilot do in your workspace?</h2>
+      <p>Describe a goal. LocoPilot reads your local files, shows its plan, and asks before it writes anything.</p>
       <div class="hero-features">
-        <div class="feat-item">&check; 100% Local Inference (Qwen)</div>
-        <div class="feat-item">&check; 5 Whitelisted Deterministic Tools</div>
-        <div class="feat-item">&check; Human Permission Checkpoint</div>
-        <div class="feat-item">&check; Post-Action Verification</div>
+        <div class="feat-item"><strong>Runs on your machine</strong><span>Inference happens locally through Ollama.</span></div>
+        <div class="feat-item"><strong>Five fixed tools</strong><span>No shell access and no generated code. It can list, read, search, create a file and create a folder.</span></div>
+        <div class="feat-item"><strong>You approve every write</strong><span>Creating a file or folder always waits for your decision.</span></div>
+        <div class="feat-item"><strong>Verified and logged</strong><span>Each change is checked on disk and recorded in the audit log.</span></div>
       </div>
     </div>
   `;
@@ -227,9 +292,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.ollama && data.ollama.target_model) {
           ollamaModelName.textContent = data.ollama.target_model;
         }
+        if (data.ollama && data.ollama.online === false) {
+          agentHealth = 'offline'; agentHealthLabel = 'Ollama offline';
+        } else if (data.ollama && data.ollama.model_ready === false) {
+          agentHealth = 'offline'; agentHealthLabel = 'Model not ready';
+        } else {
+          agentHealth = 'ready'; agentHealthLabel = 'Agent ready';
+        }
+        setAgentStatus();
+        renderLatestRun();
       }
     } catch (e) {
       console.warn('Health check error:', e);
+      agentHealth = 'offline'; agentHealthLabel = 'Backend unreachable';
+      setAgentStatus();
     }
   }
 
@@ -241,47 +317,123 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok) {
         const data = await res.json();
         renderFileList(data.items || []);
+        setWorkspaceStatus(true);
+      } else {
+        setWorkspaceStatus(false);
       }
     } catch (e) {
       workspaceFileList.innerHTML = `<div class="loading-state">Failed to load files</div>`;
+      setWorkspaceStatus(false);
     }
   }
 
   function renderFileList(items) {
+    treeGeneration++;
+    workspaceFilesFlat = [];
     if (!items.length) {
       workspaceFileList.innerHTML = `<div class="loading-state">No files in workspace</div>`;
+      applySidebarFilter();
       return;
     }
 
     workspaceFileList.innerHTML = '';
+    let folderBudget = 12; // cap eager folder listings
     items.forEach(item => {
+      if (item.type === 'directory') {
+        workspaceFileList.appendChild(createDirGroup(item, 0, folderBudget-- > 0, treeGeneration));
+      } else {
+        workspaceFilesFlat.push(item);
+        workspaceFileList.appendChild(createFileRow(item, 0));
+      }
+    });
+    applySidebarFilter();
+  }
+
+  // Folder row + its (lazily loaded) children. Listing uses the existing ?subpath= endpoint.
+  function createDirGroup(item, depth, loadChildren, generation) {
+    const group = document.createElement('div');
+    const startExpanded = depth === 0 && item.name === 'output';
+    group.className = `tree-dir${startExpanded ? '' : ' collapsed'}`;
+
+    const row = document.createElement('div');
+    row.className = 'file-tree-item is-dir';
+    row.style.setProperty('--depth', depth);
+    row.dataset.name = String(item.name).toLowerCase();
+    row.innerHTML = `
+      <div class="file-info">
+        ${startExpanded ? ICON.folderOpen : ICON.folder}
+        <span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+      </div>
+      <div class="file-meta"><span class="dir-count"></span></div>
+    `;
+
+    const children = document.createElement('div');
+    children.className = 'tree-children';
+
+    row.addEventListener('click', () => {
+      const collapsed = group.classList.toggle('collapsed');
+      const icon = row.querySelector('.file-info svg');
+      if (icon) icon.outerHTML = collapsed ? ICON.folder : ICON.folderOpen;
+    });
+
+    group.appendChild(row);
+    group.appendChild(children);
+    if (loadChildren && item.relative_path !== undefined) {
+      loadDirChildren(item, children, row, depth + 1, generation);
+    }
+    return group;
+  }
+
+  async function loadDirChildren(dirItem, childrenEl, rowEl, depth, generation) {
+    try {
+      const res = await fetch(`/api/workspace/files?subpath=${encodeURIComponent(dirItem.relative_path)}`);
+      if (!res.ok || generation !== treeGeneration) return;
+      const data = await res.json();
+      if (generation !== treeGeneration) return;
+      const kids = data.items || [];
+      const countEl = rowEl.querySelector('.dir-count');
+      if (countEl) countEl.textContent = String(kids.length);
+      childrenEl.innerHTML = '';
+      kids.forEach(k => {
+        if (k.type === 'directory') {
+          childrenEl.appendChild(createDirGroup(k, depth, depth < 3, generation));
+        } else {
+          workspaceFilesFlat.push(k);
+          childrenEl.appendChild(createFileRow(k, depth));
+        }
+      });
+      applySidebarFilter();
+    } catch (e) {
+      // folder contents are optional detail; the folder row still renders
+    }
+  }
+
+  function createFileRow(item, depth) {
       const el = document.createElement('div');
       el.className = 'file-tree-item';
-      
+      el.style.setProperty('--depth', depth);
+      el.dataset.name = String(item.name).toLowerCase();
+
       const isDir = item.type === 'directory';
-      const icon = isDir ? '📁' : (item.extension === '.pdf' ? '📕' : '📄');
+      const icon = isDir ? ICON.folder : (item.extension === '.pdf' ? ICON.pdf : ICON.file);
       const sizeStr = item.size_bytes !== null ? `${(item.size_bytes / 1024).toFixed(1)} KB` : '';
+      if (sizeStr) el.title = sizeStr;
 
       let deleteHtml = '';
       if (!isDir) {
         deleteHtml = `
-          <button class="file-delete-btn" title="Delete File" data-filepath="${escapeHtml(item.relative_path)}" data-filename="${escapeHtml(item.name)}">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              <line x1="10" y1="11" x2="10" y2="17"></line>
-              <line x1="14" y1="11" x2="14" y2="17"></line>
-            </svg>
+          <button class="file-delete-btn" title="Delete File" aria-label="Delete file" data-filepath="${escapeHtml(item.relative_path)}" data-filename="${escapeHtml(item.name)}">
+            ${sp('trash')}
           </button>
         `;
       }
 
       el.innerHTML = `
         <div class="file-info">
-          <span>${icon}</span>
-          <span class="file-name" title="${item.name}">${item.name}</span>
+          ${icon}
+          <span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div class="file-meta">
           <span class="file-size">${sizeStr}</span>
           ${deleteHtml}
         </div>
@@ -312,9 +464,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res = await fetch(`/api/workspace/files?filepath=${encodeURIComponent(item.relative_path)}`, { method: 'DELETE' });
                 if (res.ok) {
                   const data = await res.json();
-                  appendEventCard('understand', 'File Deleted & Reindexed', `
-                    <div>Successfully deleted <strong>${escapeHtml(item.name)}</strong> from workspace.</div>
-                    <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Workspace knowledge index rebuilt automatically (Chunks: ${data.indexed_chunks}).</div>
+                  appendEventCard('understand', 'File deleted and index rebuilt', `
+                    <div>Deleted <strong>${escapeHtml(item.name)}</strong> from the workspace.</div>
+                    <div class="event-note">Knowledge index rebuilt automatically (${data.indexed_chunks} chunks).</div>
                   `);
                   fetchWorkspaceFiles();
                 } else {
@@ -329,8 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      workspaceFileList.appendChild(el);
-    });
+      return el;
   }
 
   async function handleFileUpload(files) {
@@ -345,7 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     uploadFilesBtn.disabled = true;
-    uploadFilesBtn.innerHTML = `<span>Uploading...</span>`;
+    uploadFilesBtn.innerHTML = `<span class="dz-busy">Uploading...</span>`;
 
     try {
       const res = await fetch('/api/workspace/upload', {
@@ -355,13 +506,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (res.ok) {
         const data = await res.json();
-        appendEventCard('understand', 'Files Uploaded & Reindexed', `
-          <div>Successfully imported <strong>${data.count}</strong> file(s) into workspace:</div>
-          <div style="font-size:0.75rem; color:var(--accent-cyan); margin-top:4px;">
+        appendEventCard('understand', 'Files uploaded and index rebuilt', `
+          <div>Imported <strong>${data.count}</strong> file(s) into the workspace:</div>
+          <div class="event-list">
             ${(data.uploaded || []).map(f => `&bull; ${escapeHtml(f)}`).join('<br>')}
           </div>
-          <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Workspace knowledge index rebuilt automatically.</div>
+          <div class="event-note">Knowledge index rebuilt automatically.</div>
         `);
+        uploadedCount += Number(data.count) || 0;
+        if (uploadsCountBadge) uploadsCountBadge.textContent = String(uploadedCount);
         fetchWorkspaceFiles();
       } else {
         const err = await res.json();
@@ -371,14 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('File upload network error: ' + e.message);
     } finally {
       uploadFilesBtn.disabled = false;
-      uploadFilesBtn.innerHTML = `
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-        <span>Upload</span>
-      `;
+      uploadFilesBtn.innerHTML = DROPZONE_HTML;
       workspaceFileInput.value = '';
     }
   }
@@ -442,8 +588,8 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>${escapeHtml(msg || 'Processing Request...')}</span>
         </div>
       </div>
-      <div class="event-card-body" style="font-size:0.83rem; color:var(--text-muted);">
-        Initializing on-device pipeline and preparing local workspace response...
+      <div class="event-card-body">
+        Starting the on-device pipeline...
       </div>
     `;
     feedContainer.appendChild(card);
@@ -465,13 +611,9 @@ document.addEventListener('DOMContentLoaded', () => {
         currentAssistantBubble = null;
       }
       submitGoalBtn.disabled = false;
-      appendEventCard('timeout', 'Response Watchdog Timeout', `
-        <div style="color: #fda4af; font-size: 0.84rem;">
-          The local model or pipeline took longer than ${WATCHDOG_TIMEOUT_MS / 1000} seconds to yield a response token.
-        </div>
-        <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 4px;">
-          The stream has been safely closed and your input box is unlocked. You can retry with a more specific query or verify Ollama is healthy.
-        </div>
+      appendEventCard('timeout', 'Response timed out', `
+        <div>The local model took longer than ${WATCHDOG_TIMEOUT_MS / 1000} seconds to respond.</div>
+        <div class="event-note">The stream was closed and the input is unlocked. Retry with a more specific request, or check that Ollama is running.</div>
       `);
     }, WATCHDOG_TIMEOUT_MS);
   }
@@ -504,6 +646,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Append user bubble
     appendChatBubble('user', goalText);
+
+    // Header, status bar and "Latest run" panel (presentation only)
+    if (!sessionTitleHint) sessionTitleHint = goalText.replace(/\s+/g, ' ').slice(0, 75);
+    isRunning = true;
+    latestRunStart();
+    updateSessionHeader();
+    setAgentStatus();
 
     // Show immediate progress card
     showThinkingIndicator('Processing workspace request...');
@@ -597,12 +746,15 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       if (e.name !== 'AbortError') {
         removeThinkingIndicator();
-        appendEventCard('error', 'Execution Error', e.message);
+        appendEventCard('error', 'Execution error', e.message);
       }
     } finally {
       clearWatchdog();
       removeThinkingIndicator();
       submitGoalBtn.disabled = false;
+      isRunning = false;
+      latestRunEnd();
+      setAgentStatus();
       fetchWorkspaceFiles();
       fetchAuditLogs();
       fetchSessions();
@@ -613,6 +765,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handlePipelineEvent(event, appendTextFn) {
     console.log('Pipeline Event:', event);
+    try { trackRunEvent(event); } catch (e) { console.warn('Run tracking skipped:', e); }
 
     switch (event.event) {
       case 'ROUTING':
@@ -657,15 +810,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
       case 'SESSION_STARTED':
         removeThinkingIndicator();
-        appendEventCard('session', 'Local Session Initialized', `Goal: <strong>${escapeHtml(event.goal)}</strong>`);
+        appendEventCard('session', 'Session started', `Goal: <strong>${escapeHtml(event.goal)}</strong>`);
         break;
 
       case 'UNDERSTAND':
         removeThinkingIndicator();
         setStageActive('understand');
-        appendEventCard('understand', 'Intent Classification', `
+        appendEventCard('understand', 'Intent', `
           <div>Classified Intent: <span class="badge-tag">${event.classification}</span></div>
-          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">${event.message}</div>
+          <div class="event-note">${event.message}</div>
         `);
         break;
 
@@ -675,11 +828,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (event.sources && event.sources.length) {
           sourcesHtml = '<div class="sources-pill-row">' + event.sources.map(s => `
             <div class="source-chip" onclick="openFileModal('${escapeHtml(s.relative_path)}', '${escapeHtml(s.filename)}')">
-              📄 ${escapeHtml(s.filename)} <span style="opacity:0.7">(${s.score})</span>
+              ${ICON.fileSm}${escapeHtml(s.filename)} <span class="score">${s.score}</span>
             </div>
           `).join('') + '</div>';
         }
-        appendEventCard('rag', 'Local Knowledge Retrieved (RAG)', `
+        appendEventCard('rag', 'Local files searched', `
           <div>${event.message}</div>
           ${sourcesHtml}
         `);
@@ -697,7 +850,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="step-num">#${st.id}</span>
                 <span class="step-desc">${escapeHtml(st.description)}</span>
               </div>
-              <div style="display:flex; align-items:center; gap:8px;">
+              <div>
                 <span class="step-tool-badge">${st.tool}</span>
                 <span class="badge-risk ${st.risk_level.toLowerCase()}">${st.risk_level}</span>
               </div>
@@ -706,20 +859,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         stepsHtml += '</div>';
 
-        appendEventCard('plan', 'Structured Execution Plan', `
-          <div style="font-size:0.84rem; color:#cbd5e1; margin-bottom:6px;">${escapeHtml(plan.summary)}</div>
+        appendEventCard('plan', 'Plan', `
+          <div class="plan-summary">${escapeHtml(plan.summary)}</div>
           ${stepsHtml}
         `);
         break;
 
       case 'STEP_STARTED':
         const stepRow = document.getElementById(`step-row-${event.step_id}`);
-        if (stepRow) stepRow.style.borderColor = 'var(--accent-cyan)';
+        if (stepRow) stepRow.classList.add('is-running');
         break;
 
       case 'SYNTHESIZING_CONTENT':
-        appendEventCard('synthesis', 'Synthesizing Content', `
-          <div style="display:flex; align-items:center; gap:8px;">
+        appendEventCard('synthesis', 'Drafting content', `
+          <div class="event-working">
             <span class="pulse-dot blue"></span>
             <span>${event.message}</span>
           </div>
@@ -737,31 +890,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
       case 'TOOL_EXECUTED':
         setStageActive('execute');
-        appendEventCard('tool', `Executed Tool: ${event.tool}`, `
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span style="font-size:0.75rem; color:var(--text-dim);">Execution Time: ${event.execution_time_ms} ms</span>
-            <span style="font-size:0.75rem; color:${event.success ? 'var(--accent-emerald)' : 'var(--accent-rose)'}; font-weight:600;">
-              ${event.success ? '✓ SUCCESS' : '✗ ERROR'}
+        appendEventCard('tool', `Ran ${event.tool}`, `
+          <div class="tool-meta">
+            <span>Took ${event.execution_time_ms} ms</span>
+            <span class="tool-status ${event.success ? 'ok' : 'fail'}">
+              ${event.success ? ICON.check + 'Succeeded' : ICON.x + 'Failed'}
             </span>
           </div>
-          <pre class="file-content-view" style="max-height:120px; overflow-y:auto; background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; font-size:0.75rem;">${escapeHtml(JSON.stringify(event.output || event.error, null, 2))}</pre>
+          <pre class="file-content-view tool-output">${escapeHtml(JSON.stringify(event.output || event.error, null, 2))}</pre>
         `);
         break;
 
       case 'ACTION_VERIFIED':
         setStageActive('verify');
         let checksHtml = event.checks.map(c => `
-          <div style="font-size:0.75rem; color:${c.passed ? '#6ee7b7' : '#fda4af'};">
-            ${c.passed ? '✓' : '✗'} <strong>${escapeHtml(c.name)}</strong>: ${escapeHtml(c.details)}
+          <div class="check-row ${c.passed ? 'pass' : 'fail'}">
+            ${c.passed ? ICON.check : ICON.x}<span><strong>${escapeHtml(c.name)}</strong>: ${escapeHtml(c.details)}</span>
           </div>
         `).join('');
 
-        appendEventCard('verify', 'Post-Action Verification', `
-          <div class="verification-badge">
-            <span>🛡️</span>
+        appendEventCard('verify', 'Verification', `
+          <div class="verification-badge${event.checks.every(c => c.passed) ? '' : ' is-failed'}">
+            ${ICON.shield}
             <strong>${escapeHtml(event.summary)}</strong>
           </div>
-          <div style="margin-top:8px; display:flex; flex-direction:column; gap:4px;">
+          <div class="check-list">
             ${checksHtml}
           </div>
         `);
@@ -773,7 +926,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let finalSourcesHtml = '';
         if (event.sources && event.sources.length) {
           finalSourcesHtml = '<div class="sources-pill-row">' + event.sources.map(s => `
-            <div class="source-chip">📄 Source: ${escapeHtml(s.filename)}</div>
+            <div class="source-chip">${ICON.fileSm}${escapeHtml(s.filename)}</div>
           `).join('') + '</div>';
         }
 
@@ -785,7 +938,7 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
 
       case 'ERROR':
-        appendEventCard('error', 'Execution Exception', event.message);
+        appendEventCard('error', 'Execution exception', event.message);
         break;
     }
 
@@ -813,22 +966,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     gateCard.innerHTML = `
       <div class="permission-gate-header">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2">
-          <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-        </svg>
-        <span class="gate-title">HUMAN PERMISSION CHECKPOINT REQUIRED</span>
+        ${ICON.alert}
+        <span class="gate-title">Approval needed before this runs</span>
       </div>
-      <div style="font-size:0.84rem; margin-bottom:8px;">
-        <strong>Action:</strong> <span class="step-tool-badge">${req.tool}</span> &bull; 
-        <strong>Risk:</strong> <span class="badge-risk high">${req.risk_level}</span>
+      <div class="gate-meta">
+        <span>Action <span class="step-tool-badge">${req.tool}</span></span>
+        <span>Risk <span class="badge-risk high">${req.risk_level}</span></span>
       </div>
-      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">
-        <strong>Reasoning:</strong> ${escapeHtml(req.reasoning)}
+      <div class="gate-reason">
+        <strong>Why:</strong> ${escapeHtml(req.reasoning)}
       </div>
       <div class="permission-preview-box">${escapeHtml(req.preview || JSON.stringify(req.params, null, 2))}</div>
       <div class="permission-actions">
-        <button class="btn-approve" id="approve-${req.request_id}">✓ Approve Action</button>
-        <button class="btn-reject" id="reject-${req.request_id}">✗ Reject Action</button>
+        <button class="btn-approve" id="approve-${req.request_id}">Approve and run</button>
+        <button class="btn-reject" id="reject-${req.request_id}">Reject</button>
       </div>
     `;
 
@@ -836,18 +987,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById(`approve-${req.request_id}`).addEventListener('click', async () => {
       await sendPermissionDecision(req.request_id, 'APPROVE');
+      gateCard.classList.add('is-resolved');
       gateCard.innerHTML = `
-        <div style="color:var(--accent-emerald); font-size:0.85rem; font-weight:600;">
-          ✓ Action Approved by User. Resuming deterministic execution...
+        <div class="gate-resolved approved">
+          ${ICON.check}Approved. Running the step...
         </div>
       `;
     });
 
     document.getElementById(`reject-${req.request_id}`).addEventListener('click', async () => {
       await sendPermissionDecision(req.request_id, 'REJECT');
+      gateCard.classList.add('is-resolved');
       gateCard.innerHTML = `
-        <div style="color:var(--accent-rose); font-size:0.85rem; font-weight:600;">
-          ✗ Action Rejected by User. Step skipped safely.
+        <div class="gate-resolved rejected">
+          ${ICON.x}Rejected. The step was skipped.
         </div>
       `;
     });
@@ -867,31 +1020,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function appendFinalReportCard(markdownText, sourcesHtml) {
     const card = document.createElement('div');
-    card.className = 'final-report-card';
+    card.className = 'chat-bubble msg-assistant final-report-card';
+    card.dataset.rawText = markdownText || '';
+    const files = latestRun ? latestRun.files : [];
+    const filesHtml = files.length
+      ? `<div class="msg-files">${files.map(fileLinkChipHtml).join('')}</div>`
+      : '';
+    const warn = latestRun && latestRun.warnings.length ? latestRun.warnings[0] : null;
+    const statusHtml = warn
+      ? `<div class="msg-status">${sp('circle-alert')}<span>${escapeHtml(warn.title)} &middot; ${escapeHtml(warn.text)}</span></div>`
+      : '';
     card.innerHTML = `
-      <div class="event-card-header">
-        <div class="event-card-title" style="font-size:1.05rem; color:#a5b4fc;">
-          ✨ LocoPilot Synthesized Workspace Report
-        </div>
-      </div>
+      <div class="msg-avatar" aria-hidden="true">${sp('command')}</div>
+      <div class="msg-head"><span class="msg-name">LocoPilot</span><span class="msg-time">${formatClock()}</span></div>
       <div class="final-report-content">${renderMarkdown(markdownText)}</div>
+      ${statusHtml}
       ${sourcesHtml}
+      ${filesHtml}
+      <div class="msg-actions"><button type="button" class="icon-btn" title="Copy message" aria-label="Copy message">${sp('copy')}</button></div>
     `;
+    wireFileLinkChips(card);
+    wireCopyButton(card);
     feedContainer.appendChild(card);
   }
 
-  function appendChatBubble(role, content) {
+  function appendChatBubble(role, content, timestamp) {
     const bubble = document.createElement('div');
     bubble.className = `chat-bubble chat-bubble-${role}`;
     bubble.dataset.rawText = content || '';
-    const icon = role === 'user' ? '👤' : '🤖';
-    const formattedHtml = role === 'user' 
+    const isUser = role === 'user';
+    const roleLabel = isUser ? 'You' : 'LocoPilot';
+    const formattedHtml = isUser
       ? escapeHtml(content || '').replace(/\n/g, '<br>')
       : renderMarkdown(content || '');
     bubble.innerHTML = `
-      <div class="bubble-icon">${icon}</div>
+      <div class="msg-avatar" aria-hidden="true">${isUser ? 'Y' : sp('command')}</div>
+      <div class="msg-head"><span class="msg-name">${roleLabel}</span><span class="msg-time">${formatClock(timestamp)}</span></div>
       <div class="bubble-content">${formattedHtml}</div>
+      ${isUser ? '' : `<div class="msg-actions"><button type="button" class="icon-btn" title="Copy message" aria-label="Copy message">${sp('copy')}</button></div>`}
     `;
+    wireCopyButton(bubble);
     feedContainer.appendChild(bubble);
     feedContainer.scrollTop = feedContainer.scrollHeight;
     return bubble;
@@ -963,13 +1131,13 @@ document.addEventListener('DOMContentLoaded', () => {
       let metaPills = '';
       if (entry.risk_level) {
         const isHigh = entry.risk_level === 'HIGH' || entry.risk_level === 'CRITICAL';
-        metaPills += `<span class="audit-pill ${isHigh ? 'audit-pill-risk-high' : 'audit-pill-risk-low'}">${entry.risk_level} RISK</span>`;
+        metaPills += `<span class="audit-pill ${isHigh ? 'audit-pill-risk-high' : 'audit-pill-risk-low'}">${escapeHtml(String(entry.risk_level).charAt(0) + String(entry.risk_level).slice(1).toLowerCase())} risk</span>`;
       }
       if (entry.success !== undefined) {
-        metaPills += `<span class="audit-pill ${entry.success ? 'audit-pill-success' : 'audit-pill-failure'}">${entry.success ? '✓ SUCCESS' : '✗ FAILED'}</span>`;
+        metaPills += `<span class="audit-pill ${entry.success ? 'audit-pill-success' : 'audit-pill-failure'}">${entry.success ? 'Succeeded' : 'Failed'}</span>`;
       }
       if (entry.execution_time_ms) {
-        metaPills += `<span class="audit-pill" style="color:var(--text-dim);">${entry.execution_time_ms} ms</span>`;
+        metaPills += `<span class="audit-pill">${entry.execution_time_ms} ms</span>`;
       }
 
       const cardId = `audit-entry-${idx}`;
@@ -1023,7 +1191,7 @@ document.addEventListener('DOMContentLoaded', () => {
       chip.className = 'attached-file-chip';
       const fileName = file.split('/').pop().split('\\').pop();
       chip.innerHTML = `
-        <span class="attached-file-icon">📄</span>
+        <span class="attached-file-icon">${ICON.fileSm}</span>
         <span class="attached-file-name" title="${escapeHtml(file)}">${escapeHtml(fileName)}</span>
         <button type="button" class="remove-attached-file" title="Remove attachment">&times;</button>
       `;
@@ -1107,22 +1275,471 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Demo Presets
   demoPreset1.addEventListener('click', () => {
+    selectScenario(demoPreset1);
     const prompt = `Review my resume (Alex_Rivera_Resume.md) and the job description (Job_Description_AI_Research_Intern.md), analyze skill gaps, and create a customized cover letter and tailored project action plan in output/tailored_application.md.`;
     goalInput.value = '';
     startAgentRun(prompt);
   });
 
   demoPreset2.addEventListener('click', () => {
+    selectScenario(demoPreset2);
     const prompt = `Review Project_Alpha_Technical_Report.md and notes_q3_learnings.md, and synthesize the architectural principles of deterministic tool sandboxes and post-action verification.`;
     goalInput.value = '';
     startAgentRun(prompt);
   });
 
   demoPreset3.addEventListener('click', () => {
+    selectScenario(demoPreset3);
     const prompt = `Search my workspace documents for all mentions of Stanford education, inference benchmarks, and tool safety guarantees.`;
     goalInput.value = '';
     startAgentRun(prompt);
   });
+
+  // =====================================================================
+  // UI shell: presentation-only helpers (layout, search, status bar,
+  // "Latest run" panel, theme, drawers). Nothing here changes how the
+  // agent, approvals, files or sessions work.
+  // =====================================================================
+
+  function formatRelative(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    const min = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (min < 1) return 'Now';
+    if (min < 60) return `${min}m`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `${h}h`;
+    const days = Math.floor(h / 24);
+    if (days < 7) return `${days}d`;
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  function formatClock(isoStr) {
+    const d = isoStr ? new Date(isoStr) : new Date();
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  }
+
+  // --- Conversation header ---
+  function updateSessionHeader() {
+    if (!sessionTitleEl) return;
+    const sess = allSessions.find(s => s.id === currentSessionId);
+    const title = (sess && sess.preview) || sessionTitleHint || 'New chat';
+    sessionTitleEl.textContent = title;
+    sessionTitleEl.title = title;
+    if (sessionSavedLabel) sessionSavedLabel.textContent = sess ? 'Saved locally' : '';
+  }
+
+  // --- Sidebar: "View all sessions" and search/filter ---
+  function updateViewAllLink(total) {
+    if (!viewAllSessionsBtn) return;
+    viewAllSessionsBtn.hidden = total <= SESSION_PREVIEW_LIMIT;
+    const label = viewAllSessionsBtn.querySelector('span');
+    if (label) label.textContent = showAllSessions ? 'Show fewer sessions' : 'View all sessions';
+  }
+
+  if (viewAllSessionsBtn) {
+    viewAllSessionsBtn.addEventListener('click', () => {
+      showAllSessions = !showAllSessions;
+      updateViewAllLink(allSessions.length);
+      applySidebarFilter();
+    });
+  }
+
+  function filterTreeNode(node, q, parentMatch) {
+    if (node.classList.contains('tree-dir')) {
+      const row = node.firstElementChild;
+      const kids = node.lastElementChild;
+      const selfMatch = parentMatch || !q || (row.dataset.name || '').includes(q);
+      let anyChild = false;
+      Array.from(kids.children).forEach(ch => { if (filterTreeNode(ch, q, selfMatch)) anyChild = true; });
+      const visible = selfMatch || anyChild;
+      node.hidden = !visible;
+      return visible;
+    }
+    if (node.classList.contains('file-tree-item')) {
+      const match = parentMatch || !q || (node.dataset.name || '').includes(q);
+      node.hidden = !match;
+      return match;
+    }
+    return false;
+  }
+
+  function applySidebarFilter() {
+    const q = (sidebarSearchInput ? sidebarSearchInput.value : '').trim().toLowerCase();
+    document.body.classList.toggle('is-searching', !!q);
+    if (viewAllSessionsBtn) viewAllSessionsBtn.hidden = !!q || allSessions.length <= SESSION_PREVIEW_LIMIT;
+
+    let sessionsVisible = 0;
+    if (sessionsListContainer) {
+      sessionsListContainer.querySelectorAll('.session-item').forEach((el, idx) => {
+        const matches = !q || (el.dataset.search || '').includes(q);
+        const overLimit = !q && !showAllSessions && idx >= SESSION_PREVIEW_LIMIT && !el.classList.contains('active');
+        el.hidden = !matches || overLimit;
+        if (!el.hidden) sessionsVisible++;
+      });
+    }
+
+    let filesVisible = 0;
+    if (workspaceFileList) {
+      Array.from(workspaceFileList.children).forEach(node => {
+        if (filterTreeNode(node, q, false)) filesVisible++;
+      });
+    }
+
+    if (sidebarSearchEmpty) sidebarSearchEmpty.hidden = !(q && !sessionsVisible && !filesVisible);
+  }
+
+  // --- Status bar ---
+  function setAgentStatus() {
+    if (!statusAgent) return;
+    let state = 'ready';
+    let label = 'Agent ready';
+    if (isRunning) { state = 'busy'; label = 'Agent working'; }
+    else if (agentHealth === 'offline') { state = 'offline'; label = agentHealthLabel; }
+    else if (agentHealth === 'unknown') { state = 'unknown'; label = agentHealthLabel; }
+    statusAgent.dataset.state = state;
+    statusAgent.textContent = label;
+    if (statusSaved) statusSaved.hidden = isRunning;
+  }
+
+  function setWorkspaceStatus(ok) {
+    if (!statusWorkspace) return;
+    statusWorkspace.dataset.state = ok ? 'up' : 'down';
+    const label = statusWorkspace.querySelector('span');
+    if (label) label.textContent = ok ? 'Workspace connected' : 'Workspace unavailable';
+  }
+
+  // --- Saved-file links and copy ---
+  function fileLinkChipHtml(path) {
+    return `<button type="button" class="file-link-chip" data-path="${escapeHtml(path)}" title="Open ${escapeHtml(path)}">${sp('file')}<span>${escapeHtml(path)}</span>${sp('arrow-up-right', 'go')}</button>`;
+  }
+
+  function wireFileLinkChips(root) {
+    root.querySelectorAll('.file-link-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const path = chip.dataset.path || '';
+        openFileModal(path, path.split('/').pop());
+      });
+    });
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* fall through to legacy path */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;opacity:0;';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e) { return false; }
+  }
+
+  function wireCopyButton(bubble) {
+    const btn = bubble.querySelector('.msg-actions .icon-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const ok = await copyText(bubble.dataset.rawText || '');
+      if (!ok) return;
+      btn.classList.add('is-done');
+      btn.innerHTML = sp('check');
+      setTimeout(() => { btn.classList.remove('is-done'); btn.innerHTML = sp('copy'); }, 1200);
+    });
+  }
+
+  // --- Scenarios (right panel): selection highlight; clicking still runs the scenario ---
+  function selectScenario(btn) {
+    document.querySelectorAll('.scenario-item').forEach(b => b.classList.toggle('is-selected', b === btn));
+    if (!scenarioDetail) return;
+    if (!btn) { scenarioDetail.hidden = true; return; }
+    if (scenarioDesc) scenarioDesc.textContent = btn.dataset.desc || '';
+    if (scenarioPath) scenarioPath.innerHTML = escapeHtml(btn.dataset.path || 'No file requested').replace(/([/_])/g, '$1<wbr>');
+    scenarioDetail.hidden = false;
+  }
+
+  document.querySelectorAll('[data-scenario-proxy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(btn.dataset.scenarioProxy);
+      if (target) target.click();
+    });
+  });
+
+  // --- "Latest run" panel, built from the real event stream ---
+  function latestRunStart() {
+    latestRun = { status: 'running', mode: 'agent', files: [], folders: [], warnings: [] };
+    renderLatestRun();
+  }
+
+  function resetLatestRun() {
+    latestRun = null;
+    renderLatestRun();
+  }
+
+  function latestRunEnd() {
+    if (latestRun && latestRun.status === 'running') {
+      latestRun.status = 'stopped';
+      renderLatestRun();
+    }
+  }
+
+  function trackRunEvent(event) {
+    if (!latestRun) return;
+    switch (event.event) {
+      case 'ROUTING':
+        latestRun.mode = event.target === 'AGENT' ? 'agent' : 'chat';
+        break;
+      case 'KNOWLEDGE_RETRIEVED':
+        if (Array.isArray(event.sources) && event.sources.length === 0) {
+          latestRun.warnings.push({ title: 'No matching files', text: 'The search found nothing in your workspace for this request.' });
+        }
+        break;
+      case 'TOOL_EXECUTED':
+        if (event.success) {
+          const out = event.output || {};
+          if (event.tool === 'create_file' && out.filepath) latestRun.files.push(out.filepath);
+          if (event.tool === 'create_folder' && out.folderpath) latestRun.folders.push(out.folderpath);
+        } else {
+          const why = typeof event.error === 'string' ? event.error : JSON.stringify(event.error || 'Unknown error');
+          latestRun.warnings.push({ title: 'A step failed', text: `${event.tool}: ${why}` });
+        }
+        break;
+      case 'ACTION_VERIFIED': {
+        const failed = (event.checks || []).filter(c => !c.passed);
+        if (failed.length) {
+          latestRun.warnings.push({ title: 'Verification failed', text: failed.map(c => `${c.name}: ${c.details}`).join('; ') });
+        }
+        break;
+      }
+      case 'FINAL_REPORT':
+      case 'CHAT_DONE':
+        latestRun.status = 'complete';
+        break;
+      case 'ERROR':
+        latestRun.status = 'failed';
+        latestRun.warnings.push({ title: 'Run error', text: event.message || 'Unknown error' });
+        break;
+    }
+    renderLatestRun();
+  }
+
+  function renderLatestRun() {
+    if (!latestRunBody) return;
+    if (!latestRun) {
+      latestRunBody.innerHTML = `<div class="ctx-empty">No runs yet. Run a goal or pick a scenario and the result appears here.</div>`;
+      return;
+    }
+    const r = latestRun;
+    let cls = 'ok';
+    let icon = sp('circle-check');
+    let label;
+    if (r.status === 'running') { cls = 'busy'; icon = '<span class="run-dot"></span>'; label = 'Running'; }
+    else if (r.status === 'failed') { cls = 'fail'; icon = sp('circle-x'); label = 'Run failed'; }
+    else if (r.status === 'stopped') { cls = 'fail'; icon = sp('circle-x'); label = 'Run stopped'; }
+    else if (r.files.length) { label = 'Files saved'; }
+    else if (r.mode === 'chat') { label = 'Reply ready'; }
+    else { label = 'Run complete'; }
+
+    const folderRow = r.folders.length
+      ? `<div class="run-row"><span class="k">Folders created</span><span class="v">${r.folders.length}</span></div>`
+      : '';
+    const fileList = r.files.length
+      ? `<div class="run-files">${r.files.map(fileLinkChipHtml).join('')}</div>`
+      : '';
+    const warnings = r.warnings.map(w => `
+      <div class="run-warn">
+        <div class="run-warn-title">${sp('circle-alert')}<span>${escapeHtml(w.title)}</span></div>
+        <div class="run-warn-body">${escapeHtml(w.text)}</div>
+      </div>`).join('');
+
+    latestRunBody.innerHTML = `
+      <div class="run-status ${cls}">${icon}<span>${label}</span></div>
+      <div class="run-row"><span class="k">Model</span><span class="v">${escapeHtml(ollamaModelName ? ollamaModelName.textContent : '')}</span></div>
+      <div class="run-row"><span class="k">Destination</span><span class="v">Local workspace</span></div>
+      <div class="run-row"><span class="k">Files written</span><span class="v">${r.files.length}</span></div>
+      ${folderRow}
+      ${fileList}
+      ${warnings}
+    `;
+    wireFileLinkChips(latestRunBody);
+  }
+
+  // --- Theme (light / dark), remembered in localStorage ---
+  const themeLightBtn = document.getElementById('themeLightBtn');
+  const themeDarkBtn = document.getElementById('themeDarkBtn');
+
+  function applyTheme(theme, persist) {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (themeLightBtn) themeLightBtn.setAttribute('aria-pressed', String(theme === 'light'));
+    if (themeDarkBtn) themeDarkBtn.setAttribute('aria-pressed', String(theme === 'dark'));
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#1f2225' : '#ffffff');
+    if (persist) {
+      try { localStorage.setItem('locopilot-theme', theme); } catch (e) { /* storage unavailable */ }
+    }
+  }
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light', false);
+  if (themeLightBtn) themeLightBtn.addEventListener('click', () => applyTheme('light', true));
+  if (themeDarkBtn) themeDarkBtn.addEventListener('click', () => applyTheme('dark', true));
+
+  // --- Collapsible sidebar / panel sections ---
+  document.querySelectorAll('.side-section-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const section = btn.closest('.side-section');
+      if (!section) return;
+      const collapsed = section.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', String(!collapsed));
+    });
+  });
+
+  // --- Sidebar search (client-side filter over sessions and files) ---
+  if (sidebarSearchBtn && sidebarSearchRow && sidebarSearchInput) {
+    sidebarSearchBtn.addEventListener('click', () => {
+      const opening = sidebarSearchRow.hidden;
+      sidebarSearchRow.hidden = !opening;
+      sidebarSearchBtn.setAttribute('aria-expanded', String(opening));
+      if (opening) {
+        sidebarSearchInput.focus();
+      } else {
+        sidebarSearchInput.value = '';
+        applySidebarFilter();
+      }
+    });
+    sidebarSearchInput.addEventListener('input', applySidebarFilter);
+    sidebarSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); sidebarSearchBtn.click(); sidebarSearchBtn.focus(); }
+    });
+  }
+
+  // --- Drawers: sidebar (<=900px) and session context (<=1180px); context collapses on desktop ---
+  const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+  const contextToggleBtn = document.getElementById('contextToggleBtn');
+  const closeContextBtn = document.getElementById('closeContextBtn');
+  const layoutScrim = document.getElementById('layoutScrim');
+  const mqCtx = window.matchMedia('(max-width: 1180px)');
+  const mqSide = window.matchMedia('(max-width: 900px)');
+
+  function ctxIsVisible() {
+    return mqCtx.matches ? appLayout.classList.contains('ctx-open') : !appLayout.classList.contains('ctx-collapsed');
+  }
+  function setCtxVisible(show) {
+    if (mqCtx.matches) appLayout.classList.toggle('ctx-open', show);
+    else appLayout.classList.toggle('ctx-collapsed', !show);
+    if (contextToggleBtn) contextToggleBtn.setAttribute('aria-expanded', String(show));
+  }
+  function setSidebarOpen(open) {
+    appLayout.classList.toggle('sidebar-open', open);
+    if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', String(open));
+  }
+  function closeDrawers() {
+    appLayout.classList.remove('sidebar-open', 'ctx-open');
+    if (sidebarToggleBtn) sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+    if (mqCtx.matches && contextToggleBtn) contextToggleBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  if (contextToggleBtn) {
+    contextToggleBtn.setAttribute('aria-expanded', String(ctxIsVisible()));
+    contextToggleBtn.addEventListener('click', () => setCtxVisible(!ctxIsVisible()));
+  }
+  if (closeContextBtn) closeContextBtn.addEventListener('click', () => setCtxVisible(false));
+  if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', () => setSidebarOpen(!appLayout.classList.contains('sidebar-open')));
+  if (layoutScrim) layoutScrim.addEventListener('click', closeDrawers);
+
+  const onBreakpointChange = () => {
+    closeDrawers();
+    if (contextToggleBtn) contextToggleBtn.setAttribute('aria-expanded', String(ctxIsVisible()));
+  };
+  if (mqCtx.addEventListener) { mqCtx.addEventListener('change', onBreakpointChange); mqSide.addEventListener('change', onBreakpointChange); }
+
+  if (sidebarPanel) {
+    sidebarPanel.addEventListener('click', (e) => {
+      if (mqSide.matches && e.target.closest('.session-item, .side-item, .file-tree-item:not(.is-dir)')) closeDrawers();
+    });
+  }
+  if (contextPanel) {
+    contextPanel.addEventListener('click', (e) => {
+      if (mqCtx.matches && e.target.closest('.scenario-item')) closeDrawers();
+    });
+  }
+
+  // --- Attach menu: attach an existing workspace file to the next goal ---
+  function closeAttachMenu() {
+    if (!attachMenu || attachMenu.hidden) return;
+    attachMenu.hidden = true;
+    if (attachBtn) attachBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function renderAttachMenu() {
+    if (!workspaceFilesFlat.length) {
+      attachMenu.innerHTML = `<div class="attach-empty">No workspace files to attach yet.</div>`;
+      return;
+    }
+    attachMenu.innerHTML = workspaceFilesFlat.map(it => {
+      const parts = String(it.relative_path).split('/');
+      const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+      return `<button type="button" class="attach-item" role="menuitem" data-path="${escapeHtml(it.relative_path)}">${sp('file')}<span class="a-name">${escapeHtml(it.name)}</span>${dir ? `<span class="a-dir">${escapeHtml(dir)}</span>` : ''}</button>`;
+    }).join('');
+  }
+
+  if (attachBtn && attachMenu) {
+    attachBtn.addEventListener('click', () => {
+      const opening = attachMenu.hidden;
+      if (opening) renderAttachMenu();
+      attachMenu.hidden = !opening;
+      attachBtn.setAttribute('aria-expanded', String(opening));
+    });
+    attachMenu.addEventListener('click', (e) => {
+      const item = e.target.closest('.attach-item');
+      if (!item) return;
+      const path = item.dataset.path;
+      if (path && !attachedFiles.includes(path)) {
+        attachedFiles.push(path);
+        renderAttachedFiles();
+      }
+      closeAttachMenu();
+      goalInput.focus();
+    });
+    document.addEventListener('click', (e) => {
+      if (!attachMenu.hidden && !e.target.closest('.attach-wrap')) closeAttachMenu();
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    closeAttachMenu();
+    closeDrawers();
+  });
+
+  // --- Uploads: the "+" button and the drop zone use the existing upload handler ---
+  if (uploadAddBtn && workspaceFileInput) {
+    uploadAddBtn.addEventListener('click', () => workspaceFileInput.click());
+  }
+  if (uploadFilesBtn) {
+    const dragHasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+    ['dragenter', 'dragover'].forEach(type => uploadFilesBtn.addEventListener(type, (e) => {
+      if (dragHasFiles(e)) { e.preventDefault(); uploadFilesBtn.classList.add('drag-over'); }
+    }));
+    ['dragleave', 'drop'].forEach(type => uploadFilesBtn.addEventListener(type, () => uploadFilesBtn.classList.remove('drag-over')));
+    uploadFilesBtn.addEventListener('drop', (e) => {
+      if (dragHasFiles(e) && e.dataTransfer.files.length) {
+        e.preventDefault();
+        handleFileUpload(e.dataTransfer.files);
+      }
+    });
+  }
+
+  // Initial paint of shell state
+  setAgentStatus();
+  renderLatestRun();
+  updateSessionHeader();
 
   // --- Helpers ---
 
